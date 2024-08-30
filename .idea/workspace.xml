@@ -4,32 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="b3bda99a-aa20-4652-bc7c-14b6e43bcb54" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/.idea/chess.iml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/encodings.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/inspectionProfiles/profiles_settings.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/modules.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/BestMoveFinder.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/ChessEngineAdv.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/Chessgame.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/bB.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/bK.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/bN.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/bQ.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/bR.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/bp.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/mechanical-gears.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/move-self.mp3" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/wB.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/wK.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/wN.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/wQ.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/wR.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/wp.png" afterDir="false" />
-    </list>
+    <list default="true" id="b3bda99a-aa20-4652-bc7c-14b6e43bcb54" name="Changes" comment="downloaded" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -89,6 +64,19 @@
       <option name="presentableId" value="Default" />
       <updated>1724745134975</updated>
     </task>
+    <task id="LOCAL-00001" summary="downloaded">
+      <option name="closed" value="true" />
+      <created>1724750006638</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1724750006638</updated>
+    </task>
+    <option name="localTasksCounter" value="2" />
     <servers />
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="downloaded" />
+    <option name="LAST_COMMIT_MESSAGE" value="downloaded" />
   </component>
 </project>

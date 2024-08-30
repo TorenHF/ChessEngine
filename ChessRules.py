@@ -734,3 +734,12 @@ class Move:
 
     def __eq__(self, other):
         return isinstance(other, Move) and self.moveId == other.moveId
+
+
+def getLogNotation(bs):
+    moves = ""
+    if len(bs.moveLog) > 0:
+        for i in range(0, len(bs.moveLog)):
+            move = bs.moveLog[i].getChessNotation()
+            moves = moves + move
+    return moves

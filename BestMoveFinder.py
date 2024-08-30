@@ -1,227 +1,200 @@
 import random
-import ChessEngineAdv as ChessEngine
+
+import ChessRules
+import ChessRules as ChessEngine
 import pygame as p
+import numpy as np
+import torch
+import math
+import torch.nn as nn
+import torch.functional as F
 
-CHECKMATE = 10000000
-STALEMATE = 0
-DEPTH = 2
+class Node:
+    def __init__(self, game, args, state, parent=None, action_taken=None, prior=0, visit_count=0):
+        self.game = game
+        self.args = args
+        self.state = state
+        self.parent = parent
+        self.action_taken = action_taken
+        self.prior = prior
 
-piece_score = {"R": 563, "N": 305, "B": 333, "Q": 950, "K": 0, "p": 100}
+        self.children = []
+        # self.expandable_moves = game.get_valid_moves(state), removing this, but actually could be used to make search phase more effficient
+        self.visit_count = visit_count
+        self.value_sum = 0
 
-rook_scores = [[0,  0,  0,  5,  5,  0,  0,  0],
-               [5, 10, 15, 15, 15, 15, 10,  5],
-               [-5, 0,  0,  0,  0,  0,  0, -5],
-               [-5, 0,  0,  0,  0,  0,  0, -5],
-               [-5, 0,  0,  0,  0,  0,  0, -5],
-               [-5, 0,  0,  0,  0,  0,  0, -5],
-               [-5, 0,  0,  5,  5,  0,  0, -5],
-               [-15,-10,0, 10, 10,  5,-10, -15]]
+    def is_fully_expanded(self):
+        return len(self.children) > 0
 
-knight_scores = [[-50, -25, -25, -25, -25, -25, -25, -50],
-                 [-40, -20,   0,   0,   0,   0, -20, -25],
-                 [-25,   0,  10,  10,  10,  10,   0, -25],
-                 [-25,   5,  10,  15,  15,  10,   5, -25],
-                 [-25,   0,  10,  15,  15,  10,   0, -25],
-                 [-25,   5,  10,  10,  10,  10,   5, -25],
-                 [-40, -20,   0,   5,   5,   0, -20, -40],
-                 [-50, -25, -25, -25, -25, -25, -25, -50]]
+    def select(self):
+        best_child = None
+        best_ucb = -np.inf
 
-bishop_scores = [[-20, -10, -10, -10, -10, -10, -10, -20],
-                 [-10,   0,   0,   0,   0,   0,   0, -10],
-                 [-10,   0,   5,  10,  10,   5,   0, -10],
-                 [-10,   5,   5,  10,  10,   5,   5, -10],
-                 [-10,   0,  10,  10,  10,  10,   0, -10],
-                 [-10,  10,  10,  10,  10,  10,  10, -10],
-                 [-10,   5,   0,   0,   0,   0,   5, -10],
-                 [-20, -10, -15, -10, -10, -15, -10, -20]]
+        for child in self.children:
+            ucb = self.get_ucb(child)
+            if ucb > best_ucb:
+                best_child = child
+                best_ucb = ucb
+        return best_child
 
-queen_scores = [[-20, -10, -10, -5, -5, -10, -10, -20],
-                [-10,   0,   0,  0,  0,   0,   0, -10],
-                [-10,   0,   5,  5,  5,   5,   0, -10],
-                [-5,    0,   5,  5,  5,   5,   0,  -5],
-                [-5,    0,   5,  5,  5,   5,   0,  -5],
-                [-10,   0,   5,  5,  5,   5,   0, -10],
-                [-10,   0,   0,  0,  0,   0,   0, -10],
-                [-20, -10, -10, -5, -5, -10, -10, -20]]
+    def get_ucb(self, child):
+        if child.visit_count == 0:
+            q_value = 0
+        else:
+            q_value = 1 - ((child.value_sum / child.visit_count) + 1) / 2
+        return q_value + self.args['C'] * (math.sqrt(self.visit_count) / (1 + child.visit_count)) * child.prior
 
-king_scores = [[-10, -10, -10, -20, -20, -10, -10, -10],
-               [-30, -30, -40, -40, -40, -40, -30, -30],
-               [-30, -40, -40, -50, -50, -40, -40, -30],
-               [-30, -40, -40, -50, -50, -40, -40, -30],
-               [-20, -30, -30, -40, -40, -30, -30, -20],
-               [-10, -20, -20, -20, -20, -20, -20, -10],
-               [20,   20,  -5, -10, -10,  -5,  20,  20],
-               [15,   30,  10, -10,  -5,   0,  25,  15]]
+    def expand(self, policy):
+        for action, prob in enumerate(policy):
+            if prob > 0:
+                child_state = self.state.copy()
+                child_state = self.game.get_next_state(child_state, action, 1)
+                child_state = self.game.change_perspective(child_state, player=-1)
 
-king_scores_endgame = [[-40, -30, -25, -20, -20, -25, -30, -40],
-                       [-30, -20, -10,   0,   0, -10, -20, -30],
-                       [-30, -10,  20,  30,  30,  20, -10, -30],
-                       [-30, -10,  30,  40,  40,  30, -10, -30],
-                       [-30, -10,  30,  40,  40,  30, -10, -30],
-                       [-30, -10,  20,  30,  30,  20, -10, -30],
-                       [-30, -30,   0,   0,   0,   0, -30, -30],
-                       [-40, -30, -25, -20, -20, -25, -30, -40]]
+                child = Node(self.game, self.args, child_state, self, action, prob)
+                self.children.append(child)
 
-pawn_scores = [[0,   0,   0,   0,   0,  0,  0,  0],
-               [50, 50,  50,  50,  50, 50, 50, 50],
-               [10, 10,  20,  30,  30, 20, 10, 10],
-               [5,   5,  10,  25,  25, 10,  5,  5],
-               [0,   0,   0,  20,  20,  0, -5,  0],
-               [5,  -5,   0,   5,   5,  0, -5,  5],
-               [5,  10,  10, -30, -30, 10, 10,  5],
-               [0,   0,   0,   0,   0,  0,  0,  0]]
+        return child
 
+    def simulate(self):
+        value, is_terminal = self.game.get_value_and_terminate(self.state, self.action_taken)
+        value = self.game.get_opponent_value(value)
+        if is_terminal:
+            return value
 
-piece_pos_scores = {"wR": rook_scores,
-                    "bR": rook_scores[::-1],
-                    "wN": knight_scores,
-                    "bN": knight_scores[::-1],
-                    "wB": bishop_scores,
-                    "bB": bishop_scores[::-1],
-                    "wQ": queen_scores,
-                    "bQ": queen_scores[::-1],
-                    "wK": king_scores,
-                    "bK": king_scores[::-1],
-                    "wp": pawn_scores,
-                    "bp": pawn_scores[::-1],
-                    }
+        rollout_state = self.state.copy()
+        rollout_player = 1
+        while True:
+            valid_moves = self.game.get_valid_moves(rollout_state)
+            action = np.random.choice(np.where(valid_moves == 1)[0])
+            rollout_state = self.game.get_next_state(rollout_state, action, rollout_player)
+            value, is_terminal = self.game.get_value_and_terminate(rollout_state, action)
+            if is_terminal:
+                if rollout_player == -1:
+                    value = self.game.get_opponent_value(value)
+                return value
+            rollout_player = self.game.get_opponent(rollout_player)
 
+    def backpropagate(self, value):
+        self.value_sum += value
+        self.visit_count += 1
 
-def findRandomMove(validMoves):
-    if len(validMoves) != 0:
-        return validMoves[random.randint(0, len(validMoves)-1)]
-    else:
-        return None
+        value = self.game.get_opponent_value(value)
+        if self.parent is not None:
+            self.parent.backpropagate(value)
 
+class MCTS:
+    def __init__(self, args, state, player, game, model):
+        self.args = args
+        self.state = state
+        self.player = player
+        self.game = game
+        self.model = model
 
-# Helper method to make the first recursive call
-def findBestMove(bs, validMoves):
-    OpeningDatabase = {
-        "": "e2e4",
-        "b1c3": "d7d5",
-        "c2c4": "e7e5",
-        "e2e4": "e7e5",
-        "d2d4": "d7d5",
-        "g1f3": "d7d5",
-        "e2e4c7c5": "g1f3",
-        "e2e4c7c6": "b1c3",
-        "e2e4d7d5": "e4d5",
-        "e2e4e7e5": "b1c3",
-        "e2e4e7e6": "d2d4",
-        "d2d4d7d5c1f4": "c7c5",     # London Opening
-        "d2d4d7d5c2c4": "e7e6",     # Queen's Gambit
-        "d2d4d7d5g1f3": "g8f6",
-        "e2e4e7e5b1c3": "b8c6",     # Vienna Game
-        "e2e4e7e5d2d4": "e5d4",     # Center Game
-        "e2e4e7e5f1c4": "b8c6",     # Bishop's Opening
-        "e2e4e7e5g1f3": "b8c6",
-        "e2e4e7e5f2f4": "d7d5",     # King's Gambit
-        "d2d4d7d5c1f4c7c5c2c3": "b8c6",
-        "d2d4d7d5c1f4c7c5e2e3": "b8c6",
-        "d2d4d7d5c2c4e7e6b1c3": "g8f6",
-        "d2d4d7d5c2c4e7e6c4d5": "e6d5",
-        "d2d4d7d5c2c4e7e6g1f3": "g8f6",
-        "e2e4e7e5b1c3b8c6f1c4": "g8f6",
-        "e2e4e7e5f1c4b8c6b1c3": "g8f6",
-        "e2e4e7e5g1f3b8c6b1c3": "g8f6",     # Two Knights Opening
-        "e2e4e7e5g1f3b8c6d2d4": "e5d4",     # Scotch Game
-        "e2e4e7e5g1f3b8c6f1b5": "a7a6",     # Spanish Opening
-        "e2e4e7e5g1f3b8c6f1c4": "f8c5",     # Italian Game
-        "d2d4d7d5c2c4e7e6b1c3g8f6c1g5": "f8b4",
-        "d2d4d7d5c2c4e7e6g1f3g8f6c1g5": "f8b4",
-        "e2e4e7e5b1c3b8c6f1c4g8f6d2d3": "f8b4",
-        "e2e4e7e5g1f3b8c6b1c3g8f6f1b5": "f8b4",     # Four Knights Opening: Spanish Variation
-        "e2e4e7e5g1f3b8c6b1c3g8f6f1c4": "f8b4",     # Four Knights Opening: Italian Variation
-        "e2e4e7e5g1f3b8c6d2d4e5d4f3d4": "f8c5",
-        "e2e4e7e5g1f3b8c6d2d4e5d4f1c4": "f8b4",     # Scotch Gambit
-        "e2e4e7e5g1f3b8c6f1b5a7a6b5c6": "d7c6",     # Spanish Opening, Morphy Variation
-        "e2e4e7e5g1f3b8c6f1b5a7a6b5a4": "g8f6",     # Spanish Opening, Morphy Variation
-        "e2e4e7e5g1f3b8c6f1c4f8c5d2d3": "g8f6",     # Italian Game, Modern Variation
-        "e2e4e7e5g1f3b8c6f1c4f8c5c2c3": "g8f6",     # Italian Game, Classical Variation
-        "e2e4e7e5g1f3b8c6f1c4f8c5e1g1": "g8f6",
-    }
-    global nextMove
-    nextMove = None
-    if len(bs.moveLog) <= 7:
-        playedMoves = getLogNotation(bs)
-        dictMove = OpeningDatabase.get(playedMoves)
-        if dictMove is not None:
-            nextMove = ChessEngine.Move((ChessEngine.Move.ranksToRows.get(dictMove[1]), ChessEngine.Move.filesToCols.get(dictMove[0])), (ChessEngine.Move.ranksToRows.get(dictMove[3]), ChessEngine.Move.filesToCols.get(dictMove[2])), bs.board)
-            p.time.wait(random.randint(200, 400))
-    if nextMove is None:
-        # random.shuffle(validMoves)
-        NegaMaxAlphaBeta(bs, validMoves, DEPTH, 1 if bs.whiteToMove else -1, -CHECKMATE, CHECKMATE)
-    return nextMove
+    @torch.no_grad()
+    def search(self, state, model):
+        root = Node(self.game, self.args, state, visit_count=1)
+        policy, _ = model(
+            torch.tensor(self.game.get_encoded_state(state), device=model.device).unsqueeze(0)
+        )
+        policy = torch.softmax(policy, axis=1).squeeze(0).cpu().numpy()
+        policy = ((1 - self.args['dirichlet_epsilon']) * policy + self.args['dirichlet_epsilon']
+                  * np.random.dirichlet([self.args['dirichlet_alpha']] * self.game.action_size))
 
+        valid_moves = self.game.getValidMoves(state)
+        policy *= valid_moves
 
-def NegaMaxAlphaBeta(bs, validMoves, depth, turnMultiplier, alpha, beta):
-    global nextMove
-    if depth == 0 or len(validMoves) == 0:
-        if bs.checkmate:
-            if bs.whiteToMove:
-                return turnMultiplier * -CHECKMATE-(depth*10)   # Black wins
-            else:
-                return turnMultiplier * CHECKMATE+(depth*10)    # White wins
-        elif bs.stalemate:
-            return STALEMATE
-        # captureMoves = bs.getValidCaptures()
-        # return QuiescenceSearch(bs, captureMoves, 2, 1 if bs.whiteToMove else -1, -CHECKMATE, CHECKMATE)
-        return turnMultiplier * scoreBoard(bs)
+        policy /= np.sum(policy)
+        root.expand(policy)
 
-    maxScore = -CHECKMATE*10
-    for move in validMoves:
-        bs.makeMove(move)
-        nextMoves = bs.getValidMoves()
-        score = -NegaMaxAlphaBeta(bs, nextMoves, depth - 1, -turnMultiplier, -beta, -alpha)
-        if score > maxScore:
-            maxScore = score
-            if depth == DEPTH:
-                nextMove = move
-                print(move.getChessNotation(), score)
-        bs.undoMove()
-        if maxScore > alpha:
-            alpha = maxScore
-        if alpha >= beta:
-            break
-    return maxScore
+        for search in range(self.args['num_searches']):
+            node = root
 
+            while node.is_fully_expanded():
+                node = node.select()
 
-# Returns a score, positive signals an advantage for White
-def scoreBoard(bs):
-    score = 0
-    material_count = countMaterial(bs.board)
-    for row in range(len(bs.board)):
-        for col in range(len(bs.board[row])):
-            square = bs.board[row][col]
-            if square != "--":
-                if square[1] != "K":
-                    piece_pos_score = piece_pos_scores[square][row][col]
-                else:   # King
-                    if material_count <= 3000:  # Checks whether the endgame has been reached
-                        piece_pos_score = king_scores_endgame[row][col]
-                    else:
-                        piece_pos_score = piece_pos_scores[square][row][col]
-                if square[0] == "w":
-                    score += piece_score[square[1]] + piece_pos_score
-                elif square[0] == "b":
-                    score -= piece_score[square[1]] + piece_pos_score
-    return score
+            value, is_terminal = self.game.get_value_and_terminate(node.state, node.action_taken)
+            value = self.game.get_opponent_value(value)
 
+            if not is_terminal:
+                policy, value = model(
+                    torch.tensor(self.game.get_encoded_state(node.state), device=model.device).unsqueeze(0)
+                )
+                policy = torch.softmax(policy, axis=1).squeeze(0).cpu().numpy()
+                valid_moves = self.game.getValidMoves(node.state)
+                policy *= valid_moves
+                policy /= np.sum(policy)
 
-def countMaterial(board):
-    materialCount = 0
-    for row in board:
-        for square in row:
-            if square != "--":
-                materialCount += piece_score[square[1]]
-    return materialCount
+                value = value.item()
 
+                node.expand(policy)
 
-def getLogNotation(bs):
-    moves = ""
-    if len(bs.moveLog) > 0:
-        for i in range(0, len(bs.moveLog)):
-            move = bs.moveLog[i].getChessNotation()
-            moves = moves + move
-    return moves
+            node.backpropagate(value)
+
+        action_probs = np.zeros(self.game.action_size)
+        for child in root.children:
+            action_probs[child.action_taken] = child.visit_count
+        action_probs /= np.sum(action_probs)
+        return action_probs
+
+    def makeMove(self, state, validMoves):
+        action_probs = self.search(state, self.model)
+        bestMove = np.argmax(action_probs)
+        chessMove = validMoves[bestMove]
+        return chessMove
+
+class ResNet(nn.Module):
+    def __init__(self, game, num_resBlocks, num_hidden, device):
+        super().__init__()
+        self.device = device
+        self.startBlock = nn.Sequential(
+            nn.Conv2d(3, num_hidden, kernel_size=3, padding=1),
+            nn.BatchNorm2d(num_hidden),
+            nn.ReLU()
+        )
+        self.backBone = nn.ModuleList(
+            [ResBlock(num_hidden) for i in range(num_resBlocks)]
+        )
+        self.policyHead = nn.Sequential(
+            nn.Conv2d(num_hidden, 32, kernel_size=3, padding=1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(),
+            nn.Flatten(),
+            nn.Linear(32 * game.row_count * game.colum_count, game.action_size)
+        )
+
+        self.valueHead = nn.Sequential(
+            nn.Conv2d(num_hidden, 3, kernel_size=3, padding=1),
+            nn.BatchNorm2d(3),
+            nn.ReLU(),
+            nn.Flatten(),
+            nn.Linear(3 * game.row_count * game.colum_count, 1),
+            nn.Tanh()
+        )
+        self.to(device)
+
+    def forward(self, x):
+        x = self.startBlock(x)
+        for resBlock in self.backBone:
+            x = resBlock(x)
+        policy = self.policyHead(x)
+        value = self.valueHead(x)
+        return policy,
+
+class ResBlock(nn.Module):
+    def __init__(self, num_hidden):
+        super().__init__()
+        self.conv1 = nn.Conv2d(num_hidden, num_hidden, kernel_size=3, padding=1)
+        self.bn1 = nn.BatchNorm2d(num_hidden)
+        self.conv2 = nn.Conv2d(num_hidden, num_hidden, kernel_size=3, padding=1)
+        self.bn2 = nn.BatchNorm2d(num_hidden)
+
+    def forward(self, x):
+        residual = x
+        x = F.relu(self.bn1(self.conv1(x)))
+        x = self.bn2(self.conv2(x))
+        x += residual
+        x = F.relu(x)
+        return x
+
 

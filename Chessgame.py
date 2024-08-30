@@ -6,9 +6,9 @@
 This is the main driver file.
 It is responsible for handling the user input and displaying the current BoardState object.
 """
-
+import numpy as np
 import pygame as p
-import ChessEngineAdv as ChessEngine
+import ChessRules as ChessEngine
 # from Chess import ChessEngine # Weaker version of the program with more naive generation of legal moves
 import BestMoveFinder
 
@@ -111,14 +111,12 @@ def main():
 
         # AI move finder logic
         if not gameOver and not humanTurn:
-            AIMove = BestMoveFinder.findBestMove(bs, validMoves)
-            if AIMove is None:
-                AIMove = BestMoveFinder.findRandomMove(validMoves)
-            bs.makeMove(AIMove)
+            aiMove = BestMoveFinder.MCTS.makeMove(bs, validMoves)
+            bs.makeMove(aiMove)
             moveMade = True
             animate = True
         if moveMade:
-            BestMoveFinder.getLogNotation(bs)
+            ChessEngine.getLogNotation(bs)
             moveSound.play()
             if animate:
                 animateMove(bs.moveLog[-1], screen, bs.board, clock)
