@@ -44,12 +44,12 @@ class Node:
             q_value = 1 - ((child.value_sum / child.visit_count) + 1) / 2
         return q_value + self.args['C'] * (math.sqrt(self.visit_count) / (1 + child.visit_count)) * child.prior
 
-    def expand(self, policy):
+    def expand(self, policy, validMoves):
         for action, prob in enumerate(policy):
             if prob > 0:
                 child_state = self.state.copy()
-                child_state = self.game.get_next_state(child_state, action, 1)
-                child_state = self.game.change_perspective(child_state, player=-1)
+                child_state = self.game.makeMoveAZ(child_state, validMoves[action], 1)
+                child_state = self.game.changePerspective(child_state, player=-1)
 
                 child = Node(self.game, self.args, child_state, self, action, prob)
                 self.children.append(child)
@@ -58,22 +58,22 @@ class Node:
 
     def simulate(self):
         value, is_terminal = self.game.get_value_and_terminate(self.state, self.action_taken)
-        value = self.game.get_opponent_value(value)
+        value = self.game.getOpponentValue(value)
         if is_terminal:
             return value
 
         rollout_state = self.state.copy()
         rollout_player = 1
         while True:
-            valid_moves = self.game.get_valid_moves(rollout_state)
+            valid_moves = self.game.getValidMoves(rollout_state)
             action = np.random.choice(np.where(valid_moves == 1)[0])
             rollout_state = self.game.get_next_state(rollout_state, action, rollout_player)
             value, is_terminal = self.game.get_value_and_terminate(rollout_state, action)
             if is_terminal:
                 if rollout_player == -1:
-                    value = self.game.get_opponent_value(value)
+                    value = self.game.getOpponentValue(value)
                 return value
-            rollout_player = self.game.get_opponent(rollout_player)
+            rollout_player = self.game.getOpponent(rollout_player)
 
     def backpropagate(self, value):
         self.value_sum += value
@@ -101,8 +101,8 @@ class MCTS:
         policy = ((1 - self.args['dirichlet_epsilon']) * policy + self.args['dirichlet_epsilon']
                   * np.random.dirichlet([self.args['dirichlet_alpha']] * self.game.action_size))
 
-        valid_moves = self.game.getValidMoves(state)
-        policy *= valid_moves
+        validMoves = self.game.getValidMoves(state)
+        policy *= validMoves
 
         policy /= np.sum(policy)
         root.expand(policy)
@@ -114,7 +114,7 @@ class MCTS:
                 node = node.select()
 
             value, is_terminal = self.game.get_value_and_terminate(node.state, node.action_taken)
-            value = self.game.get_opponent_value(value)
+            value = self.game.getOpponentValue(value)
 
             if not is_terminal:
                 policy, value = model(
@@ -137,7 +137,7 @@ class MCTS:
         action_probs /= np.sum(action_probs)
         return action_probs
 
-    def makeMove(self, state, validMoves):
+    def findMove(self, state, validMoves):
         action_probs = self.search(state, self.model)
         bestMove = np.argmax(action_probs)
         chessMove = validMoves[bestMove]
@@ -160,7 +160,7 @@ class ResNet(nn.Module):
             nn.BatchNorm2d(32),
             nn.ReLU(),
             nn.Flatten(),
-            nn.Linear(32 * game.row_count * game.colum_count, game.action_size)
+            nn.Linear(32 * game.rowCount * game.columnCount, game.actionSize)
         )
 
         self.valueHead = nn.Sequential(
@@ -168,7 +168,7 @@ class ResNet(nn.Module):
             nn.BatchNorm2d(3),
             nn.ReLU(),
             nn.Flatten(),
-            nn.Linear(3 * game.row_count * game.colum_count, 1),
+            nn.Linear(3 * game.rowCount * game.columnCount, 1),
             nn.Tanh()
         )
         self.to(device)

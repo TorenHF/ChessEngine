@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import random
 import BestMoveFinder
+import ChessRules
 
 
 
@@ -23,13 +24,13 @@ class AlphaZeroParallel:
         while len(spGames) > 0:
             states = np.stack([spg.state for spg in spGames])
 
-            neutral_states = self.game.change_perspective(states, player)
+            neutral_states = self.game.changePerspective(states, player)
             self.mcts.search(neutral_states, spGames)
 
             for i in range(len(spGames))[::-1]:
                 spg = spGames[i]
 
-                action_probs = np.zeros(self.game.action_size)
+                action_probs = np.zeros(self.game.actionSize)
                 for child in spg.root.children:
                     action_probs[child.action_taken] = child.visit_count
                 action_probs /= np.sum(action_probs)
@@ -38,14 +39,15 @@ class AlphaZeroParallel:
 
                 temperature_action_probs = action_probs ** (1 / self.args['temperature'])
                 temperature_action_probs /= np.sum(temperature_action_probs)  # Ensure it sums to 1
-                action = np.random.choice(self.game.action_size, p=temperature_action_probs)
+                action = np.random.choice(len(self.game.getValidMoves), p=temperature_action_probs)
+                move = self.game.actionToMove(states, action, player)
 
-                spg.state = self.game.get_next_state(spg.state, action, player)
+                spg.state = self.game.makeMoveAZ(spg.state, action)
 
                 value, is_terminal = self.game.get_value_and_terminate(spg.state, action)
                 if is_terminal:
                     for hist_neutral_state, hist_action_probs, hist_player in spg.memory:
-                        hist_outcome = value if hist_player == player else self.game.get_opponent_value(value)
+                        hist_outcome = value if hist_player == player else self.game.getOpponentValue(value)
                         return_memory.append((
                             self.game.get_encoded_state(hist_neutral_state),
                             hist_action_probs,
@@ -117,11 +119,11 @@ class MCTSParallel:
         )
         policy = torch.softmax(policy, axis=1).cpu().numpy()
         policy = ((1-self.args['dirichlet_epsilon']) * policy + self.args['dirichlet_epsilon']
-                  * np.random.dirichlet([self.args['dirichlet_alpha']]* self.game.action_size, size=policy.shape[0]))
+                  * np.random.dirichlet([self.args['dirichlet_alpha']]* self.game.actionSize, size=policy.shape[0]))
 
         for i, spg in enumerate(spGames):
             spg_policy = policy[i]
-            valid_moves = self.game.get_valid_moves(spg.state)
+            valid_moves = self.game.getValidMoves(spg.state)
             spg_policy *= valid_moves
             spg_policy /= np.sum(spg_policy)
 
@@ -138,7 +140,7 @@ class MCTSParallel:
                     node = node.select()
 
                 value, is_terminal = self.game.get_value_and_terminate(node.state, node.action_taken)
-                value = self.game.get_opponent_value(value)
+                value = self.game.getOpponentValue(value)
 
                 if is_terminal:
                     node.backpropagate(value)
@@ -161,7 +163,7 @@ class MCTSParallel:
                     spg_policy, spg_value = policy[i], value[i]
                     node = spGames[mappingIdx].node
 
-                    valid_moves = self.game.get_valid_moves(node.state)
+                    valid_moves = self.game.getValidMoves(node.state)
                     spg_policy *= valid_moves
                     spg_policy /= np.sum(spg_policy)
 

@@ -47,7 +47,7 @@ def main():
     moveSound = p.mixer.Sound("move-self.mp3")
     screen.fill(p.Color("white"))
     moveLogFont = p.font.SysFont("Verdana", 20, False, False)
-    bs = ChessEngine.BoardState()
+    bs = ChessEngine.BoardState_and_Rules()
     validMoves = bs.getValidMoves()
     move_count = 0
     moveMade = False    # Flag variable for when a move is made
@@ -89,6 +89,7 @@ def main():
                                     animate = True
                                     tileSelected = ()       # resets the player's clicks
                                     playerClicks = []
+                                    print(validMoves)
                             if not moveMade:
                                 playerClicks = [tileSelected]
 
@@ -111,7 +112,9 @@ def main():
 
         # AI move finder logic
         if not gameOver and not humanTurn:
-            aiMove = BestMoveFinder.MCTS.makeMove(bs, validMoves)
+            validMoves = bs.getValidMoves()
+            print(validMoves)
+            aiMove = BestMoveFinder.MCTS.findMove(bs, validMoves)
             bs.makeMove(aiMove)
             moveMade = True
             animate = True

@@ -5,7 +5,7 @@ It is responsible for keeping a move log.
 """
 
 
-class BoardState:
+class BoardState_and_Rules:
 
     def __init__(self):
         # The board is 8x8. It is represented by a 2d list
@@ -24,12 +24,21 @@ class BoardState:
                       ['--', '--', '--', '--', '--', '--', '--', '--'],
                       ['wp', 'wp', 'wp', 'wp', 'wp', 'wp', 'wp', 'wp'],
                       ['wR', 'wN', 'wB', 'wQ', 'wK', 'wB', 'wN', 'wR']]
+        self.columnCount = 8
+        self.rowCount = 8
+        self.boardSize = self.columnCount * self.rowCount
+        self.swapDictionary = {
+        'wR': 'bR', 'wN': 'bN', 'wB': 'bB', 'wQ': 'bQ', 'wK': 'bK', 'wp': 'bp',
+        'bR': 'wR', 'bN': 'wN', 'bB': 'wB', 'bQ': 'wQ', 'bK': 'wK', 'bp': 'wp',
+        '--': '--'
+    }
 
         self.whiteToMove = True
         self.moveLog = []
         # Keeping track of kings' placement to make legal move generation and castling more simple
         self.whiteKingLocation = (7, 4)
         self.blackKingLocation = (0, 4)
+
 
         self.inCheck = False
         self.pins = []
@@ -45,6 +54,60 @@ class BoardState:
         self.currentCastlingRights = CastleRights(True, True, True, True)
         self.castleRightsLog = [CastleRights(self.currentCastlingRights.wKs, self.currentCastlingRights.wQs,
                                              self.currentCastlingRights.bKs, self.currentCastlingRights.bQs)]
+
+    def changePerspective(self, state, player):
+        if player == 1:
+            for column in range(self.columnCount):
+                for row in range(self.rowCount):
+                    state[column][row] = self.swapDictionary[state[column][row]]
+
+        return state
+
+    def getOpponent(self, player):
+        player *= -1
+        return player
+
+    def getOpponentValue(self, value):
+        return -value
+
+    def makeMoveAZ(self, state, move):
+        board = state
+        if board[move.startRow][move.startCol] != "--":
+            board[move.startRow][move.startCol] = "--"
+            board[move.endRow][move.endCol] = move.pieceMoved
+
+            if move.pieceMoved == 'wK':
+                self.whiteKingLocation = (move.endRow, move.endCol)
+            if move.pieceMoved == 'bK':
+                self.blackKingLocation = (move.endRow, move.endCol)
+
+            # Pawn Promotion
+            if move.isPawnPromotion:
+                board[move.endRow][move.endCol] = move.pieceMoved[0] + "Q"
+
+            # En Passant
+            if move.isEnpassantMove:
+                board[move.startRow][move.endCol] = '--'  # Capturing the Piece
+            if move.pieceMoved[1] == 'p' and abs(move.endRow - move.startRow) == 2:
+                self.isPossibleEnpassant = ((move.startRow + move.endRow) // 2, move.endCol)
+            else:
+                self.isPossibleEnpassant = ()
+            self.enPassantLogs.append(self.isPossibleEnpassant)
+
+            # Castle Move
+            if move.isCastleMove:
+                if move.endCol > move.startCol:  # Kingside Castle
+                    board[move.endRow][move.endCol - 1] = board[move.endRow][move.endCol + 1]  # Rook move
+                    board[move.endRow][7] = "--"  # Removes Rook from original tile
+                else:  # Queenside Castle
+                    board[move.endRow][move.endCol + 1] = board[move.endRow][move.endCol - 2]
+                    board[move.endRow][0] = "--"
+            # Update Castling Rights
+            self.updateCastlingRights(move)
+            newCastleRights = CastleRights(self.currentCastlingRights.wKs, self.currentCastlingRights.wQs,
+                                           self.currentCastlingRights.bKs, self.currentCastlingRights.bQs)
+            self.castleRightsLog.append(newCastleRights)
+            return board
 
     def makeMove(self, move):
         if self.board[move.startRow][move.startCol] != "--":
