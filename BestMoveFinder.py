@@ -113,7 +113,7 @@ class MCTS:
             while node.is_fully_expanded():
                 node = node.select()
 
-            value, is_terminal = self.game.get_value_and_terminate(node.state, node.action_taken)
+            value, is_terminal = self.game.getValue_and_is_terminated(node.state, node.action_taken)
             value = self.game.getOpponentValue(value)
 
             if not is_terminal:

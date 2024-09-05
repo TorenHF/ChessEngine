@@ -4,13 +4,8 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="b3bda99a-aa20-4652-bc7c-14b6e43bcb54" name="Changes" comment="Deleted old BestMoveFinder and replaced it with MCTS, started modifying the code to accomodate AlphaZero, added Train file">
-      <change beforePath="$PROJECT_DIR$/.idea/encodings.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/encodings.xml" afterDir="false" />
+    <list default="true" id="b3bda99a-aa20-4652-bc7c-14b6e43bcb54" name="Changes" comment="started implementing and adding functions to accomodate the mcts">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/BestMoveFinder.py" beforeDir="false" afterPath="$PROJECT_DIR$/BestMoveFinder.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ChessRules.py" beforeDir="false" afterPath="$PROJECT_DIR$/ChessRules.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ChessTrain.py" beforeDir="false" afterPath="$PROJECT_DIR$/ChessTrain.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Chessgame.py" beforeDir="false" afterPath="$PROJECT_DIR$/Chessgame.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -102,13 +97,22 @@
       <option name="project" value="LOCAL" />
       <updated>1725011331713</updated>
     </task>
-    <option name="localTasksCounter" value="3" />
+    <task id="LOCAL-00003" summary="started implementing and adding functions to accomodate the mcts">
+      <option name="closed" value="true" />
+      <created>1725384229589</created>
+      <option name="number" value="00003" />
+      <option name="presentableId" value="LOCAL-00003" />
+      <option name="project" value="LOCAL" />
+      <updated>1725384229589</updated>
+    </task>
+    <option name="localTasksCounter" value="4" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
     <MESSAGE value="downloaded" />
     <MESSAGE value="Deleted old BestMoveFinder and replaced it with MCTS, started modifying the code to accomodate AlphaZero, added Train file" />
-    <option name="LAST_COMMIT_MESSAGE" value="Deleted old BestMoveFinder and replaced it with MCTS, started modifying the code to accomodate AlphaZero, added Train file" />
+    <MESSAGE value="started implementing and adding functions to accomodate the mcts" />
+    <option name="LAST_COMMIT_MESSAGE" value="started implementing and adding functions to accomodate the mcts" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
@@ -147,16 +151,6 @@
           <url>file://$PROJECT_DIR$/BestMoveFinder.py</url>
           <line>70</line>
           <option name="timeStamp" value="9" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/BestMoveFinder.py</url>
-          <line>97</line>
-          <option name="timeStamp" value="10" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/BestMoveFinder.py</url>
-          <line>104</line>
-          <option name="timeStamp" value="11" />
         </line-breakpoint>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/BestMoveFinder.py</url>

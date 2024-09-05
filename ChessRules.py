@@ -706,7 +706,7 @@ class BoardState_and_Rules:
    '''
 
     def tileUnderAttack(self, r, c):
-        # LESS OPTIMISED WAY -> generating opponent's moves and then seeing -> but not a lot as max 16 opponent's piece and max 8 moves per piece -> total 128 moves -> very less for computer to calculate
+        # LESS OPTIMISED WAY -> generating opponent's moves and then seeing -> but not a lot as max 16 opponent's piece and max 8 moves per piece -> total 128 moves -> much less for computer to calculate
 
         # MORE OPTIMISED ALGORITHM -> only 64 + 8 -> 72 calculations
         # here we move away from the square we want to calculate threat from
