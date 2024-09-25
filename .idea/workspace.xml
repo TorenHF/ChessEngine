@@ -4,9 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="b3bda99a-aa20-4652-bc7c-14b6e43bcb54" name="Changes" comment="started implementing and adding functions to accomodate the mcts">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-    </list>
+    <list default="true" id="b3bda99a-aa20-4652-bc7c-14b6e43bcb54" name="Changes" comment="started implementing and adding functions to accomodate the mcts" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -48,12 +46,13 @@
   <component name="PropertiesComponent"><![CDATA[{
   "keyToString": {
     "Python.BestMoveFinder.executor": "Run",
+    "Python.Chess.executor": "Run",
     "Python.chessgame.executor": "Run",
     "RunOnceActivity.OpenProjectViewOnStart": "true",
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "SHARE_PROJECT_CONFIGURATION_FILES": "true",
     "git-widget-placeholder": "main",
-    "last_opened_file_path": "C:/Users/toren/PycharmProjects/MA.AlphaZero.Learn",
+    "last_opened_file_path": "C:/Users/toren/PycharmProjects/chess",
     "settings.editor.selected.configurable": "com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable"
   }
 }]]></component>

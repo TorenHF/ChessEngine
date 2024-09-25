@@ -26,7 +26,6 @@ class BoardState_and_Rules:
                       ['wR', 'wN', 'wB', 'wQ', 'wK', 'wB', 'wN', 'wR']]
         self.columnCount = 8
         self.rowCount = 8
-        self.boardSize = self.columnCount * self.rowCount
         self.swapDictionary = {
         'wR': 'bR', 'wN': 'bN', 'wB': 'bB', 'wQ': 'bQ', 'wK': 'bK', 'wp': 'bp',
         'bR': 'wR', 'bN': 'wN', 'bB': 'wB', 'bQ': 'wQ', 'bK': 'wK', 'bp': 'wp',

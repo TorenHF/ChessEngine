@@ -3,8 +3,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import random
-import BestMoveFinder
-import ChessRules
+import Chess
+import chess
 
 
 
@@ -39,7 +39,7 @@ class AlphaZeroParallel:
 
                 temperature_action_probs = action_probs ** (1 / self.args['temperature'])
                 temperature_action_probs /= np.sum(temperature_action_probs)  # Ensure it sums to 1
-                action = np.random.choice(len(self.game.getValidMoves), p=temperature_action_probs)
+                action = np.random.choice(len(states.legal_moves), p=temperature_action_probs)
                 move = self.game.actionToMove(states, action, player)
 
                 spg.state = self.game.makeMoveAZ(spg.state, action)
@@ -55,7 +55,7 @@ class AlphaZeroParallel:
                         ))
                     del spGames[i]
 
-            player = self.game.get_opponent(player)
+            player = self.game.getOpponent(player)
 
         return return_memory
 
@@ -102,7 +102,7 @@ class AlphaZeroParallel:
 
 class SPG:
     def __init__(self, game):
-        self.state = game.get_init_state()
+        self.state = chess.Board()
         self.memory = []
         self.root = None
         self.node = None
@@ -123,11 +123,12 @@ class MCTSParallel:
 
         for i, spg in enumerate(spGames):
             spg_policy = policy[i]
-            valid_moves = self.game.getValidMoves(spg.state)
+            valid_moves = spg.state.legal_moves
+            #binary valid moves
             spg_policy *= valid_moves
             spg_policy /= np.sum(spg_policy)
 
-            spg.root = BestMoveFinder.Node(self.game, self.args, spg.state, visit_count=1)
+            spg.root = Chess.Node(self.game, self.args, spg.state, visit_count=1)
 
             spg.root.expand(spg_policy)
 
@@ -164,6 +165,7 @@ class MCTSParallel:
                     node = spGames[mappingIdx].node
 
                     valid_moves = self.game.getValidMoves(node.state)
+                    #binary valid moves
                     spg_policy *= valid_moves
                     spg_policy /= np.sum(spg_policy)
 

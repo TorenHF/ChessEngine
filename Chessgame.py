@@ -84,7 +84,7 @@ def main():
                             for i in range(len(validMoves)):
                                 if move == validMoves[i]:
                                     print(move.getChessNotation())
-                                    bs.makeMove(validMoves[i])
+                                    bs.makeMove(bs, validMoves[i])
                                     moveMade = True
                                     animate = True
                                     tileSelected = ()       # resets the player's clicks

@@ -1,16 +1,126 @@
-import random
-
-import ChessRules
-import ChessRules
-import pygame as p
+import chess
 import numpy as np
 import torch
 import math
 import torch.nn as nn
 import torch.functional as F
 
+
+
+
+
+
+
+
+class Game:
+    def __init__(self):
+        self.columnCount = 8
+        self.rowCount = 8
+        self.action_size = 4672
+        self.swapDictionary = {
+            'R': 'r', 'N': 'n', 'B': 'b', 'Q': 'q', 'K': 'k', 'P': 'p',
+            'r': 'R', 'n': 'N', 'b': 'B', 'q': 'Q', 'k': 'K', 'p': 'P',
+            '.': '.'
+        }
+
+    def changePerspective(self, state, player):
+        if player == 1:
+            for column in range(self.columnCount):
+                for row in range(self.rowCount):
+                    state[column][row] = self.swapDictionary[state[column][row]]
+
+        return state
+
+    def getOpponent(self, player):
+        player *= -1
+        return player
+
+    def getOpponentValue(self, value):
+        return -value
+
+    def get_value_and_terminate(self, state, action):
+        state.push(action)
+        if state.is_checkmate():
+            return 1, True
+        elif state.is_stalemate():
+            return 0, True
+        else:
+            return 0, False
+
+    def is_move_never_possible(self, move):
+        # Extract source and target squares
+        source_rank = chess.square_rank(move.from_square)
+        source_file = chess.square_file(move.from_square)
+        target_rank = chess.square_rank(move.to_square)
+        target_file = chess.square_file(move.to_square)
+
+        # Compute rank and file differences
+        rank_diff = abs(target_rank - source_rank)
+        file_diff = abs(target_file - source_file)
+
+        # A move is impossible if no chess piece can perform it
+        # Knight: moves in L shape (2 squares one direction, 1 the other)
+        if (rank_diff == 2 and file_diff == 1) or (rank_diff == 1 and file_diff == 2):
+            return False  # valid knight move
+
+        # Rook: moves along ranks or files (either rank or file must be the same)
+        if (rank_diff == 0 or file_diff == 0):
+            return False  # valid rook move
+
+        # Bishop: moves diagonally (rank and file must change by the same amount)
+        if rank_diff == file_diff and rank_diff > 0:
+            return False  # valid bishop move
+
+        # Queen: combines rook and bishop movement
+        if (rank_diff == 0 or file_diff == 0) or (rank_diff == file_diff):
+            return False  # valid queen move
+
+        # King: moves 1 square in any direction
+        if rank_diff <= 1 and file_diff <= 1:
+            return False  # valid king move
+
+        # Pawn: special case, can only move forward or capture diagonally forward
+        if source_file == target_file and (rank_diff == 1 or (rank_diff == 2 and source_rank in [1, 6])):
+            return False  # valid pawn move forward
+        if file_diff == 1 and rank_diff == 1:
+            return False  # valid pawn capture diagonally
+
+        # If none of the above conditions are met, the move is never possible
+        return True
+
+    def getAllMoves(self):
+        moves = []
+        for source_square in chess.SQUARES:
+            for target_square in chess.SQUARES:
+                move = chess.Move(source_square, target_square)
+                if not self.is_move_never_possible(move):
+                    moves.append(move)
+        return moves
+
+    def get_binary_moves(self, board):
+        binaryMoves = []
+        possibleMoves = self.getAllMoves()
+        for move in possibleMoves:
+            if board.is_legal(move):
+                binaryMoves.append(1)
+            else:
+                binaryMoves.append(0)
+        return binaryMoves
+
+
+    def get_encoded_state(self, board):
+        encoded_state = np.zeros((8,8))
+        for square in chess.SQUARES:
+            piece = board.piece_at(square)
+            if piece == b:
+                print("n")
+
+
+
+
+
 class Node:
-    def __init__(self, game, args, state, whiteKingLocation, blackKingLocation, isPossibleEnpassant, castlingRights, parent=None, action_taken=None, prior=0, visit_count=0):
+    def __init__(self, game, args, state, parent=None, action_taken=None, prior=0, visit_count=0):
         self.game = game
         self.args = args
         self.state = state
@@ -19,22 +129,10 @@ class Node:
         self.prior = prior
 
         self.children = []
-        # self.expandable_moves = game.get_valid_moves(state), removing this, but actually could be used to make search phase more effficient
         self.visit_count = visit_count
         self.value_sum = 0
 
-        # Keeping track of kings' placement to make legal move generation and castling more simple
-        self.whiteKingLocation = whiteKingLocation
-        self.blackKingLocation = blackKingLocation
 
-        # En passant
-        self.isPossibleEnpassant = isPossibleEnpassant   # Tile where en passant capture can happen
-        self.enPassantLogs = [self.isPossibleEnpassant]
-
-        # Castling
-        self.currentCastlingRights = castlingRights
-        self.castleRightsLog = [ChessRules.CastleRights(self.currentCastlingRights.wKs, self.currentCastlingRights.wQs,
-                                             self.currentCastlingRights.bKs, self.currentCastlingRights.bQs)]
 
     def is_fully_expanded(self):
         return len(self.children) > 0
@@ -57,11 +155,11 @@ class Node:
             q_value = 1 - ((child.value_sum / child.visit_count) + 1) / 2
         return q_value + self.args['C'] * (math.sqrt(self.visit_count) / (1 + child.visit_count)) * child.prior
 
-    def expand(self, policy, validMoves):
+    def expand(self, policy):
         for action, prob in enumerate(policy):
             if prob > 0:
                 child_state = self.state.copy()
-                child_state = self.game.makeMoveAZ(child_state, validMoves[action], 1)
+                child_state = child_state.push(policy)
                 child_state = self.game.changePerspective(child_state, player=-1)
 
                 child = Node(self.game, self.args, child_state, self, action, prob)
@@ -78,7 +176,7 @@ class Node:
         rollout_state = self.state.copy()
         rollout_player = 1
         while True:
-            valid_moves = self.game.getValidMoves(rollout_state)
+            valid_moves = rollout_state.valid_moves
             action = np.random.choice(np.where(valid_moves == 1)[0])
             rollout_state = self.game.get_next_state(rollout_state, action, rollout_player)
             value, is_terminal = self.game.get_value_and_terminate(rollout_state, action)
@@ -92,7 +190,7 @@ class Node:
         self.value_sum += value
         self.visit_count += 1
 
-        value = self.game.get_opponent_value(value)
+        value = self.game.getOpponentValue(value)
         if self.parent is not None:
             self.parent.backpropagate(value)
 
@@ -114,7 +212,7 @@ class MCTS:
         policy = ((1 - self.args['dirichlet_epsilon']) * policy + self.args['dirichlet_epsilon']
                   * np.random.dirichlet([self.args['dirichlet_alpha']] * self.game.action_size))
 
-        validMoves = self.game.getValidMovesAZ(state)
+        validMoves = state.legal_moves
         policy *= validMoves
 
         policy /= np.sum(policy)
@@ -126,7 +224,7 @@ class MCTS:
             while node.is_fully_expanded():
                 node = node.select()
 
-            value, is_terminal = self.game.getValue_and_is_terminated(node.state, node.action_taken)
+            value, is_terminal = self.game.get_value_and_terminate(node.state, node.action_taken)
             value = self.game.getOpponentValue(value)
 
             if not is_terminal:
@@ -210,4 +308,11 @@ class ResBlock(nn.Module):
         x = F.relu(x)
         return x
 
+game = Game()
+board = chess.Board()
+print(len(game.getAllMoves()))
+
+print(board)
+print(game.getAllMoves())
+print(game.get_binary_moves(board))
 
