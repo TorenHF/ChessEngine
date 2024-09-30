@@ -16,7 +16,7 @@ class Game:
     def __init__(self):
         self.columnCount = 8
         self.rowCount = 8
-        self.action_size = 4672
+        self.action_size = 1856
         self.swapDictionary = {
             'R': 'r', 'N': 'n', 'B': 'b', 'Q': 'q', 'K': 'k', 'P': 'p',
             'r': 'R', 'n': 'N', 'b': 'B', 'q': 'Q', 'k': 'K', 'p': 'P',
@@ -59,6 +59,11 @@ class Game:
         file_diff = abs(target_file - source_file)
 
         # A move is impossible if no chess piece can perform it
+        # Castling: The king moves two squares horizontally from its starting position
+        if move.from_square == chess.E1 and move.to_square in [chess.G1, chess.C1]:  # White castling
+            return False  # Valid castling move for White
+        if move.from_square == chess.E8 and move.to_square in [chess.G8, chess.C8]:  # Black castling
+            return False  # Valid castling move for Black
         # Knight: moves in L shape (2 squares one direction, 1 the other)
         if (rank_diff == 2 and file_diff == 1) or (rank_diff == 1 and file_diff == 2):
             return False  # valid knight move
@@ -88,6 +93,38 @@ class Game:
         # If none of the above conditions are met, the move is never possible
         return True
 
+    def piece_to_vector(self, piece, colour):
+
+        if piece == chess.Piece(chess.PAWN, chess.WHITE):
+            return np.array([1,0,0,0,0,0])
+        elif piece == chess.Piece(chess.BISHOP, chess.WHITE):
+            return np.array([0,1,0,0,0,0])
+        elif piece == chess.Piece(chess.KNIGHT, chess.WHITE):
+            return np.array([0,0,1,0,0,0])
+        elif piece == chess.Piece(chess.ROOK, chess.WHITE):
+            return np.array([0,0,0,1,0,0])
+        elif piece == chess.Piece(chess.QUEEN, chess.WHITE):
+            return np.array([0,0,0,0,1,0])
+        elif piece == chess.Piece(chess.KING, chess.WHITE):
+            return np.array([0,0,0,0,0,1])
+        elif piece is None:
+            return np.array([0,0,0,0,0,0])
+        elif piece == chess.Piece(chess.PAWN, chess.BLACK):
+            return np.array([-1,0,0,0,0,0])
+        elif piece == chess.Piece(chess.BISHOP, chess.BLACK):
+            return np.array([0,-1,0,0,0,0])
+        elif piece == chess.Piece(chess.KNIGHT, chess.BLACK):
+            return np.array([0,0,-1,0,0,0])
+        elif piece == chess.Piece(chess.ROOK, chess.BLACK):
+            return np.array([0,0,0,-1,0,0])
+        elif piece == chess.Piece(chess.QUEEN, chess.BLACK):
+            return np.array([0,0,0,0,-1,0])
+        elif piece == chess.Piece(chess.KING, chess.BLACK):
+            return np.array([0, 0, 0, 0, 0, -1])
+
+
+
+
     def getAllMoves(self):
         moves = []
         for source_square in chess.SQUARES:
@@ -109,11 +146,13 @@ class Game:
 
 
     def get_encoded_state(self, board):
-        encoded_state = np.zeros((8,8))
-        for square in chess.SQUARES:
-            piece = board.piece_at(square)
-            if piece == b:
-                print("n")
+        encoded_state= np.zeros((8, 8, 6))
+        for row in range(self.rowCount):
+            for column in range(self.columnCount):
+                piece = board.piece_at(chess.square(column, row))
+                encoded_state[row, column] = self.piece_to_vector(piece, chess.WHITE)
+        encoded_state = encoded_state.astype(np.float32)
+        return encoded_state
 
 
 
@@ -212,7 +251,7 @@ class MCTS:
         policy = ((1 - self.args['dirichlet_epsilon']) * policy + self.args['dirichlet_epsilon']
                   * np.random.dirichlet([self.args['dirichlet_alpha']] * self.game.action_size))
 
-        validMoves = state.legal_moves
+        validMoves = self.game.get_binary_moves(state)
         policy *= validMoves
 
         policy /= np.sum(policy)
@@ -307,12 +346,8 @@ class ResBlock(nn.Module):
         x += residual
         x = F.relu(x)
         return x
-
 game = Game()
 board = chess.Board()
-print(len(game.getAllMoves()))
-
 print(board)
-print(game.getAllMoves())
-print(game.get_binary_moves(board))
-
+list = game.get_binary_moves(board)
+print(len(list))
