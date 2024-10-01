@@ -22,6 +22,7 @@ class Game:
             'r': 'R', 'n': 'N', 'b': 'B', 'q': 'Q', 'k': 'K', 'p': 'P',
             '.': '.'
         }
+        self.all_moves = self.getAllMoves()
 
     def changePerspective(self, state, player):
         if player == 1:
@@ -93,7 +94,7 @@ class Game:
         # If none of the above conditions are met, the move is never possible
         return True
 
-    def piece_to_vector(self, piece, colour):
+    def piece_to_vector(self, piece):
 
         if piece == chess.Piece(chess.PAWN, chess.WHITE):
             return np.array([1,0,0,0,0,0])
@@ -136,8 +137,7 @@ class Game:
 
     def get_binary_moves(self, board):
         binaryMoves = []
-        possibleMoves = self.getAllMoves()
-        for move in possibleMoves:
+        for move in self.all_moves:
             if board.is_legal(move):
                 binaryMoves.append(1)
             else:
@@ -150,7 +150,7 @@ class Game:
         for row in range(self.rowCount):
             for column in range(self.columnCount):
                 piece = board.piece_at(chess.square(column, row))
-                encoded_state[row, column] = self.piece_to_vector(piece, chess.WHITE)
+                encoded_state[row, column] = self.piece_to_vector(piece)
         encoded_state = encoded_state.astype(np.float32)
         return encoded_state
 
@@ -290,7 +290,7 @@ class MCTS:
     def findMove(self, state, validMoves):
         action_probs = self.search(state, self.model)
         bestMove = np.argmax(action_probs)
-        chessMove = validMoves[bestMove]
+        chessMove = self.game.all_moves[bestMove]
         return chessMove
 
 class ResNet(nn.Module):
@@ -346,8 +346,17 @@ class ResBlock(nn.Module):
         x += residual
         x = F.relu(x)
         return x
-game = Game()
-board = chess.Board()
-print(board)
-list = game.get_binary_moves(board)
-print(len(list))
+
+args = {
+    'C': 2,
+    'num_searches': 500,
+    'num_iterations' : 8,
+    'num_selfPlay_iterations' : 300,
+    'num_parallel_games' : 15,
+    'num_epochs' : 4,
+    'batch_size' : 64,
+    'temperature' : 1.25,
+    'dirichlet_epsilon' : 0.25,
+    'dirichlet_alpha' : 0.3,
+    'num_engine_games' : 100
+}

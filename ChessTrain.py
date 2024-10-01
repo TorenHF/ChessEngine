@@ -40,9 +40,9 @@ class AlphaZeroParallel:
                 temperature_action_probs = action_probs ** (1 / self.args['temperature'])
                 temperature_action_probs /= np.sum(temperature_action_probs)  # Ensure it sums to 1
                 action = np.random.choice(len(states.legal_moves), p=temperature_action_probs)
-                move = self.game.actionToMove(states, action, player)
+                move = self.game.all_moves[action]
 
-                spg.state = self.game.makeMoveAZ(spg.state, action)
+                spg.state = spg.state.push(move)
 
                 value, is_terminal = self.game.get_value_and_terminate(spg.state, action)
                 if is_terminal:
@@ -123,8 +123,7 @@ class MCTSParallel:
 
         for i, spg in enumerate(spGames):
             spg_policy = policy[i]
-            valid_moves = spg.state.legal_moves
-            #binary valid moves
+            valid_moves = self.game.get_binary_moves(states)
             spg_policy *= valid_moves
             spg_policy /= np.sum(spg_policy)
 
@@ -164,8 +163,7 @@ class MCTSParallel:
                     spg_policy, spg_value = policy[i], value[i]
                     node = spGames[mappingIdx].node
 
-                    valid_moves = self.game.getValidMoves(node.state)
-                    #binary valid moves
+                    valid_moves = self.game.get_binary_moves(node.state)
                     spg_policy *= valid_moves
                     spg_policy /= np.sum(spg_policy)
 

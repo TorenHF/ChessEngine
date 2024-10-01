@@ -115,7 +115,15 @@
       <option name="project" value="LOCAL" />
       <updated>1727268091099</updated>
     </task>
-    <option name="localTasksCounter" value="5" />
+    <task id="LOCAL-00005" summary="started using pythonchess library">
+      <option name="closed" value="true" />
+      <created>1727716377882</created>
+      <option name="number" value="00005" />
+      <option name="presentableId" value="LOCAL-00005" />
+      <option name="project" value="LOCAL" />
+      <updated>1727716377882</updated>
+    </task>
+    <option name="localTasksCounter" value="6" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
