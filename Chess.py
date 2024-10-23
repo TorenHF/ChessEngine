@@ -100,10 +100,12 @@ class Game:
     def getOpponentValue(self, value):
         return -value
 
-    def get_value_and_terminate(self, state):
+    def get_value_and_terminate(self, state, num_moves):
         if state.is_checkmate():
             return 1, True
         elif state.is_stalemate():
+            return 0, True
+        elif num_moves > 10:
             return 0, True
         else:
             return 0, False
@@ -444,7 +446,7 @@ class ResBlock(nn.Module):
 
 args = {
     'C': 2,
-    'num_searches': 5,
+    'num_searches': 500,
     'num_iterations' : 1,
     'num_selfPlay_iterations' : 1,
     'num_parallel_games' : 1,
@@ -464,17 +466,17 @@ move = chess.Move.from_uci('e2e3')
 
 
 
-model = ResNet(game, 2, 128, device)
+model = ResNet(game, 5, 128, device)
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=0.0001)
 mcts = MCTS(args, state, player, game, model)
 
 alphazero = ChessTrain.AlphaZeroParallel(model, optimizer, game, args, Node)
 profiler = cProfile.Profile()
-alphazero.learn()
+
 profiler.enable()
 
 # Run the function you want to profile
-
+alphazero.learn()
 
 profiler.disable()
 profiler.dump_stats('output.prof')  # Save to a file

@@ -19,10 +19,12 @@ class AlphaZeroParallel:
         return_memory = []
         player = 1
         spGames = [SPG(self.game) for spg in range(self.args['num_parallel_games'])]
+        num_moves = 0
 
         while len(spGames) > 0:
             states = np.stack([spg.state for spg in spGames])
 
+            num_moves += 1
 
             neutral_states = self.game.changePerspective_parallel(states, player)
 
@@ -51,7 +53,7 @@ class AlphaZeroParallel:
                 state.push(move)
 
                 spg.state = state
-                value, is_terminal = self.game.get_value_and_terminate(state)
+                value, is_terminal = self.game.get_value_and_terminate(state, num_moves)
                 if is_terminal:
                     for hist_neutral_state, hist_action_probs, hist_player in spg.memory:
                         hist_outcome = value if hist_player == player else self.game.getOpponentValue(value)
@@ -153,7 +155,7 @@ class MCTSParallel:
                 while node.is_fully_expanded():
                     node = node.select() #a move was made
 
-                value, is_terminal = self.game.get_value_and_terminate(node.state)
+                value, is_terminal = self.game.get_value_and_terminate(node.state, 1)
                 value = self.game.getOpponentValue(value)
 
                 if is_terminal:
