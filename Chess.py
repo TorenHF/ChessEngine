@@ -448,8 +448,8 @@ args = {
     'C': 2,
     'num_searches': 500,
     'num_iterations' : 1,
-    'num_selfPlay_iterations' : 1,
-    'num_parallel_games' : 1,
+    'num_selfPlay_iterations' : 5,
+    'num_parallel_games' : 5,
     'num_epochs' : 4,
     'batch_size' : 64,
     'temperature' : 1.25,
@@ -479,8 +479,8 @@ profiler.enable()
 alphazero.learn()
 
 profiler.disable()
-profiler.dump_stats('output.prof')  # Save to a file
+profiler.dump_stats('output.prof.2')  # Save to a file
 
 # Load and view stats
-stats = pstats.Stats('output.prof')
-stats.strip_dirs().sort_stats('time').print_stats(10)  # Show top 10 functions by time
+stats = pstats.Stats('output.prof.2')
+stats.strip_dirs().sort_stats('time').print_stats(25)  # Show top 10 functions by time

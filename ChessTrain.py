@@ -9,7 +9,7 @@ import chess
 
 class AlphaZeroParallel:
     def __init__(self, model, optimizer, game, args, node):
-        self.model = model.to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+        self.model = model
         self.optimizer = optimizer
         self.game = game
         self.args = args
@@ -54,11 +54,12 @@ class AlphaZeroParallel:
 
                 spg.state = state
                 value, is_terminal = self.game.get_value_and_terminate(state, num_moves)
+
                 if is_terminal:
                     for hist_neutral_state, hist_action_probs, hist_player in spg.memory:
                         hist_outcome = value if hist_player == player else self.game.getOpponentValue(value)
                         return_memory.append((
-                            self.game.get_encoded_state(hist_neutral_state),
+                            self.game.get_encoded_state(hist_neutral_state).cpu().numpy(),
                             hist_action_probs,
                             hist_outcome
                         ))
@@ -77,7 +78,7 @@ class AlphaZeroParallel:
             state, policy_targets, value_targets = zip(*sample)
 
             state, policy_targets, value_targets = np.array(state), np.array(policy_targets), np.array(value_targets).reshape(-1, 1)
-            state = torch.tensor(state,dtype=torch.float32, device=self.model.device)
+            state = torch.tensor(state, dtype=torch.float32, device=self.model.device)
             policy_targets = torch.tensor(policy_targets, dtype=torch.float32, device=self.model.device)
             value_targets = torch.tensor(value_targets, dtype=torch.float32, device=self.model.device)
 
@@ -127,7 +128,7 @@ class MCTSParallel:
     @torch.no_grad()
     def search(self, states, spGames, player):
         policy, _ = self.model(
-            torch.tensor(self.game.get_encoded_state_parallel(states), device=self.model.device)
+            self.game.get_encoded_state_parallel(states).clone().detach().to(self.model.device)
         )
         policy = torch.softmax(policy, axis=1).cpu().numpy()
         policy = ((1-self.args['dirichlet_epsilon']) * policy + self.args['dirichlet_epsilon']
@@ -171,9 +172,8 @@ class MCTSParallel:
                 if len(expandable_spGames) >0:
                     states = np.stack([spGames[mappingIdx].node.state for mappingIdx in expandable_spGames])
 
-
                     policy, value = self.model(
-                        torch.tensor(self.game.get_encoded_state_parallel(states), device=self.model.device)
+                        self.game.get_encoded_state_parallel(states)
                     )
                     policy = torch.softmax(policy, axis=1).cpu().numpy()
                     value = value.cpu().numpy()
