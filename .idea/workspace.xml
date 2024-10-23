@@ -4,9 +4,10 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="b3bda99a-aa20-4652-bc7c-14b6e43bcb54" name="Changes" comment="started using pythonchess library">
+    <list default="true" id="b3bda99a-aa20-4652-bc7c-14b6e43bcb54" name="Changes" comment="added encoded state and binarx move functions, meaning that the game rules should be finished now">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/Chess.py" beforeDir="false" afterPath="$PROJECT_DIR$/Chess.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ChessTrain.py" beforeDir="false" afterPath="$PROJECT_DIR$/ChessTrain.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -46,19 +47,21 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent">{
-  &quot;keyToString&quot;: {
-    &quot;Python.BestMoveFinder.executor&quot;: &quot;Run&quot;,
-    &quot;Python.Chess.executor&quot;: &quot;Run&quot;,
-    &quot;Python.chessgame.executor&quot;: &quot;Run&quot;,
-    &quot;RunOnceActivity.OpenProjectViewOnStart&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
-    &quot;SHARE_PROJECT_CONFIGURATION_FILES&quot;: &quot;true&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
-    &quot;last_opened_file_path&quot;: &quot;C:/Users/toren/PycharmProjects/MA.AlphaZero.Learn&quot;,
-    &quot;settings.editor.selected.configurable&quot;: &quot;com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable&quot;
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "Python.BestMoveFinder.executor": "Run",
+    "Python.Chess.executor": "Run",
+    "Python.ChessTrain.executor": "Run",
+    "Python.chessgame.executor": "Run",
+    "Python.test.executor": "Run",
+    "RunOnceActivity.OpenProjectViewOnStart": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "SHARE_PROJECT_CONFIGURATION_FILES": "true",
+    "git-widget-placeholder": "main",
+    "last_opened_file_path": "C:/Users/toren/PycharmProjects/chess",
+    "settings.editor.selected.configurable": "com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable"
   }
-}</component>
+}]]></component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
       <recent name="C:\Users\toren\PycharmProjects\chess" />
@@ -123,7 +126,15 @@
       <option name="project" value="LOCAL" />
       <updated>1727716377882</updated>
     </task>
-    <option name="localTasksCounter" value="6" />
+    <task id="LOCAL-00006" summary="added encoded state and binarx move functions, meaning that the game rules should be finished now">
+      <option name="closed" value="true" />
+      <created>1727776435161</created>
+      <option name="number" value="00006" />
+      <option name="presentableId" value="LOCAL-00006" />
+      <option name="project" value="LOCAL" />
+      <updated>1727776435161</updated>
+    </task>
+    <option name="localTasksCounter" value="7" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
@@ -131,7 +142,8 @@
     <MESSAGE value="Deleted old BestMoveFinder and replaced it with MCTS, started modifying the code to accomodate AlphaZero, added Train file" />
     <MESSAGE value="started implementing and adding functions to accomodate the mcts" />
     <MESSAGE value="started using pythonchess library" />
-    <option name="LAST_COMMIT_MESSAGE" value="started using pythonchess library" />
+    <MESSAGE value="added encoded state and binarx move functions, meaning that the game rules should be finished now" />
+    <option name="LAST_COMMIT_MESSAGE" value="added encoded state and binarx move functions, meaning that the game rules should be finished now" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
@@ -150,11 +162,6 @@
           <url>file://$PROJECT_DIR$/BestMoveFinder.py</url>
           <line>59</line>
           <option name="timeStamp" value="4" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/ChessTrain.py</url>
-          <line>42</line>
-          <option name="timeStamp" value="5" />
         </line-breakpoint>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/BestMoveFinder.py</url>
@@ -187,29 +194,14 @@
           <option name="timeStamp" value="14" />
         </line-breakpoint>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/ChessTrain.py</url>
-          <line>117</line>
-          <option name="timeStamp" value="16" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/ChessTrain.py</url>
-          <line>127</line>
-          <option name="timeStamp" value="18" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/ChessTrain.py</url>
-          <line>157</line>
-          <option name="timeStamp" value="20" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/ChessTrain.py</url>
-          <line>168</line>
-          <option name="timeStamp" value="21" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/BestMoveFinder.py</url>
           <line>46</line>
           <option name="timeStamp" value="23" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/Chess.py</url>
+          <line>248</line>
+          <option name="timeStamp" value="26" />
         </line-breakpoint>
       </breakpoints>
     </breakpoint-manager>

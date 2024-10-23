@@ -3,8 +3,10 @@ import numpy as np
 import torch
 import math
 import torch.nn as nn
-import torch.functional as F
-
+import torch.nn.functional as F
+import ChessTrain
+import cProfile
+import pstats
 
 
 
@@ -13,24 +15,83 @@ import torch.functional as F
 
 
 class Game:
-    def __init__(self):
+    def __init__(self, device):
         self.columnCount = 8
         self.rowCount = 8
-        self.action_size = 1856
+        self.actionSize = 1856
+        self.device = device
         self.swapDictionary = {
             'R': 'r', 'N': 'n', 'B': 'b', 'Q': 'q', 'K': 'k', 'P': 'p',
             'r': 'R', 'n': 'N', 'b': 'B', 'q': 'Q', 'k': 'K', 'p': 'P',
-            '.': '.'
+            '.': '.', '1':'1', '2':'2', '3':'3', '4':'4', '5':'5', '6':'6', '7':'7', '8':'8'
         }
         self.all_moves = self.getAllMoves()
 
     def changePerspective(self, state, player):
-        if player == 1:
-            for column in range(self.columnCount):
-                for row in range(self.rowCount):
-                    state[column][row] = self.swapDictionary[state[column][row]]
+
+        if player == -1:
+            # Get the full FEN notation (including piece placement, turn, etc.)
+            fen = state.fen()
+            # Split FEN into its components (piece placement, turn, etc.)
+            parts = fen.split(' ')
+
+            # Split the board portion of FEN into rows and reverse them
+            board_rows = parts[0].split('/')
+            flipped_rows = board_rows[::-1]
+
+            # Swap piece colors: lowercase (black) ↔ uppercase (white)
+            swapped_rows = []
+
+            for row in flipped_rows:
+                swapped_row = ""
+                for char in row:
+                    # Check if the character is a piece and swap its color
+                    if char in 'prnbqk':  # Black to white
+                        swapped_row += char.upper()
+                    elif char in 'PRNBQK':  # White to black
+                        swapped_row += char.lower()
+                    else:
+                        # If it's a number (empty squares), keep it as it is
+                        swapped_row += char
+                swapped_rows.append(swapped_row)
+            # Reassemble the board part of the FEN
+            flipped_fen = '/'.join(swapped_rows)
+
+            # Replace the board part with the flipped and swapped version
+            parts[0] = flipped_fen
+
+            # Flip the active color ('w' ↔ 'b')
+            parts[1] = 'b' if parts[1] == 'w' else 'w'
+
+            # Reconstruct the full FEN and load it into a new board
+            flipped_fen = ' '.join(parts)
+            state = chess.Board(flipped_fen)
+
 
         return state
+
+    def changePerspective_parallel(self, states, player):
+        if player == -1:
+            for i, state in enumerate(states):
+                flipped_state = self.changePerspective(state, player)
+                states[i] = flipped_state
+        return states
+
+    def flip_move(self, move, player):
+        if player == -1:
+            flipped_from = chess.square_mirror(move.from_square)
+            flipped_to = chess.square_mirror(move.to_square)
+
+            # Create a new move with the flipped squares
+            flipped_move = chess.Move(flipped_from, flipped_to)
+
+            # Preserve the promotion piece, if any (e.g., pawn promotion to queen)
+            if move.promotion:
+                flipped_move.promotion = move.promotion
+        else:
+            flipped_move = move
+        return flipped_move
+
 
     def getOpponent(self, player):
         player *= -1
@@ -39,8 +100,7 @@ class Game:
     def getOpponentValue(self, value):
         return -value
 
-    def get_value_and_terminate(self, state, action):
-        state.push(action)
+    def get_value_and_terminate(self, state):
         if state.is_checkmate():
             return 1, True
         elif state.is_stalemate():
@@ -49,79 +109,63 @@ class Game:
             return 0, False
 
     def is_move_never_possible(self, move):
-        # Extract source and target squares
         source_rank = chess.square_rank(move.from_square)
         source_file = chess.square_file(move.from_square)
         target_rank = chess.square_rank(move.to_square)
         target_file = chess.square_file(move.to_square)
 
-        # Compute rank and file differences
         rank_diff = abs(target_rank - source_rank)
         file_diff = abs(target_file - source_file)
 
-        # A move is impossible if no chess piece can perform it
-        # Castling: The king moves two squares horizontally from its starting position
         if move.from_square == chess.E1 and move.to_square in [chess.G1, chess.C1]:  # White castling
             return False  # Valid castling move for White
         if move.from_square == chess.E8 and move.to_square in [chess.G8, chess.C8]:  # Black castling
             return False  # Valid castling move for Black
-        # Knight: moves in L shape (2 squares one direction, 1 the other)
         if (rank_diff == 2 and file_diff == 1) or (rank_diff == 1 and file_diff == 2):
             return False  # valid knight move
-
-        # Rook: moves along ranks or files (either rank or file must be the same)
         if (rank_diff == 0 or file_diff == 0):
             return False  # valid rook move
-
-        # Bishop: moves diagonally (rank and file must change by the same amount)
         if rank_diff == file_diff and rank_diff > 0:
             return False  # valid bishop move
-
-        # Queen: combines rook and bishop movement
         if (rank_diff == 0 or file_diff == 0) or (rank_diff == file_diff):
             return False  # valid queen move
-
-        # King: moves 1 square in any direction
         if rank_diff <= 1 and file_diff <= 1:
             return False  # valid king move
-
-        # Pawn: special case, can only move forward or capture diagonally forward
         if source_file == target_file and (rank_diff == 1 or (rank_diff == 2 and source_rank in [1, 6])):
             return False  # valid pawn move forward
         if file_diff == 1 and rank_diff == 1:
             return False  # valid pawn capture diagonally
 
-        # If none of the above conditions are met, the move is never possible
+
         return True
 
     def piece_to_vector(self, piece):
-
         if piece == chess.Piece(chess.PAWN, chess.WHITE):
-            return np.array([1,0,0,0,0,0])
+            return torch.tensor([1,0,0,0,0,0])
         elif piece == chess.Piece(chess.BISHOP, chess.WHITE):
-            return np.array([0,1,0,0,0,0])
+            return torch.tensor([0,1,0,0,0,0])
         elif piece == chess.Piece(chess.KNIGHT, chess.WHITE):
-            return np.array([0,0,1,0,0,0])
+            return torch.tensor([0,0,1,0,0,0])
         elif piece == chess.Piece(chess.ROOK, chess.WHITE):
-            return np.array([0,0,0,1,0,0])
+            return torch.tensor([0,0,0,1,0,0])
         elif piece == chess.Piece(chess.QUEEN, chess.WHITE):
-            return np.array([0,0,0,0,1,0])
+            return torch.tensor([0,0,0,0,1,0])
         elif piece == chess.Piece(chess.KING, chess.WHITE):
-            return np.array([0,0,0,0,0,1])
+            return torch.tensor([0,0,0,0,0,1])
         elif piece is None:
-            return np.array([0,0,0,0,0,0])
+            return torch.tensor([0,0,0,0,0,0])
         elif piece == chess.Piece(chess.PAWN, chess.BLACK):
-            return np.array([-1,0,0,0,0,0])
+            return torch.tensor([-1,0,0,0,0,0])
         elif piece == chess.Piece(chess.BISHOP, chess.BLACK):
-            return np.array([0,-1,0,0,0,0])
+            return torch.tensor([0,-1,0,0,0,0])
         elif piece == chess.Piece(chess.KNIGHT, chess.BLACK):
-            return np.array([0,0,-1,0,0,0])
+            return torch.tensor([0,0,-1,0,0,0])
         elif piece == chess.Piece(chess.ROOK, chess.BLACK):
-            return np.array([0,0,0,-1,0,0])
+            return torch.tensor([0,0,0,-1,0,0])
         elif piece == chess.Piece(chess.QUEEN, chess.BLACK):
-            return np.array([0,0,0,0,-1,0])
+            return torch.tensor([0,0,0,0,-1,0])
         elif piece == chess.Piece(chess.KING, chess.BLACK):
-            return np.array([0, 0, 0, 0, 0, -1])
+            return torch.tensor([0, 0, 0, 0, 0, -1])
 
 
 
@@ -137,6 +181,7 @@ class Game:
 
     def get_binary_moves(self, board):
         binaryMoves = []
+        board.turn = chess.WHITE
         for move in self.all_moves:
             if board.is_legal(move):
                 binaryMoves.append(1)
@@ -145,27 +190,79 @@ class Game:
         return binaryMoves
 
 
+
     def get_encoded_state(self, board):
-        encoded_state= np.zeros((8, 8, 6))
+        encoded_state = torch.zeros((8, 8, 6), dtype=torch.float32)
+
         for row in range(self.rowCount):
             for column in range(self.columnCount):
                 piece = board.piece_at(chess.square(column, row))
-                encoded_state[row, column] = self.piece_to_vector(piece)
-        encoded_state = encoded_state.astype(np.float32)
-        return encoded_state
+                sourceTensor = self.piece_to_vector(piece)
+                encoded_state[row, column] = sourceTensor.clone().detach()
+
+
+        return encoded_state.to(self.device)
+
+    def get_encoded_state_parallel(self, states):
+        encoded_states = torch.zeros((int(len(states)), 8, 8, 6), dtype=torch.float32)
+        for idx, state in enumerate(states):
+            #encoded_state = torch.zeros((8, 8, 6), dtype=torch.float32)
+            for row in range(self.rowCount):
+                for column in range(self.columnCount):
+                    piece = state.piece_at(chess.square(column, row))
+                    sourceTensor = self.piece_to_vector(piece)
+                    #encoded_state[row, column] = sourceTensor.clone().detach()
+                    encoded_states[idx, row, column] = sourceTensor.clone().detach()
+
+        return encoded_states.to(self.device)
+
+    def play(self, state, player):
+        while True:
+            print(state)
+            if player == 1:
+                valid_moves = state.legal_moves
+                #print("Valid moves:", [i for i in range(self.action_size) if valid_moves[i] == 1])
+                print(state.legal_moves)
+                action = str(input(f"Player {player}, enter your move: "))
+
+                #if valid_moves[action] == 0:
+                    #print("Action not valid. Try again.")
+                    #continue
+                state.push_san(action)
+            else:
+                neutral_state = self.changePerspective(state, player)
+                mcts_probs = mcts.search(neutral_state)
+                action = np.argmax(mcts_probs)
+                move = self.all_moves[action]
+                neutral_state.push(move)
+                state = self.changePerspective(neutral_state, player)
+
+
+            value, is_terminal = self.get_value_and_terminate(state)
+
+            if is_terminal:
+                print(state)
+                if value == 1:
+                    print(f"Player {player} won!")
+                else:
+                    print("It's a draw!")
+                break
+
+            player = self.getOpponent(player)
 
 
 
 
 
 class Node:
-    def __init__(self, game, args, state, parent=None, action_taken=None, prior=0, visit_count=0):
+    def __init__(self, game, args, state, parent=None, action_taken=None, action_index=None, prior=0, visit_count=0):
         self.game = game
         self.args = args
         self.state = state
         self.parent = parent
         self.action_taken = action_taken
         self.prior = prior
+        self.action_index = action_index
 
         self.children = []
         self.visit_count = visit_count
@@ -194,14 +291,17 @@ class Node:
             q_value = 1 - ((child.value_sum / child.visit_count) + 1) / 2
         return q_value + self.args['C'] * (math.sqrt(self.visit_count) / (1 + child.visit_count)) * child.prior
 
-    def expand(self, policy):
+    def expand(self, policy, player):
         for action, prob in enumerate(policy):
             if prob > 0:
                 child_state = self.state.copy()
-                child_state = child_state.push(policy)
+                move = self.game.all_moves[action]
+
+                child_state.push(move)
+
                 child_state = self.game.changePerspective(child_state, player=-1)
 
-                child = Node(self.game, self.args, child_state, self, action, prob)
+                child = Node(self.game, self.args, child_state, self, move, action, prob)
                 self.children.append(child)
 
         return child
@@ -242,20 +342,21 @@ class MCTS:
         self.model = model
 
     @torch.no_grad()
-    def search(self, state, model):
+    def search(self, state):
+        model = self.model
         root = Node(self.game, self.args, state, visit_count=1)
         policy, _ = model(
-            torch.tensor(self.game.get_encoded_state(state), device=model.device).unsqueeze(0)
+            self.game.get_encoded_state(state).clone().detach().to(model.device).unsqueeze(0)
         )
         policy = torch.softmax(policy, axis=1).squeeze(0).cpu().numpy()
         policy = ((1 - self.args['dirichlet_epsilon']) * policy + self.args['dirichlet_epsilon']
-                  * np.random.dirichlet([self.args['dirichlet_alpha']] * self.game.action_size))
+                  * np.random.dirichlet([self.args['dirichlet_alpha']] * self.game.actionSize))
 
         validMoves = self.game.get_binary_moves(state)
         policy *= validMoves
 
         policy /= np.sum(policy)
-        root.expand(policy)
+        root.expand(policy, player)
 
         for search in range(self.args['num_searches']):
             node = root
@@ -263,7 +364,7 @@ class MCTS:
             while node.is_fully_expanded():
                 node = node.select()
 
-            value, is_terminal = self.game.get_value_and_terminate(node.state, node.action_taken)
+            value, is_terminal = self.game.get_value_and_terminate(node.state)
             value = self.game.getOpponentValue(value)
 
             if not is_terminal:
@@ -271,34 +372,28 @@ class MCTS:
                     torch.tensor(self.game.get_encoded_state(node.state), device=model.device).unsqueeze(0)
                 )
                 policy = torch.softmax(policy, axis=1).squeeze(0).cpu().numpy()
-                valid_moves = self.game.getValidMoves(node.state)
+                valid_moves = self.game.get_binary_moves(node.state)
                 policy *= valid_moves
                 policy /= np.sum(policy)
 
                 value = value.item()
 
-                node.expand(policy)
+                node.expand(policy, player)
 
             node.backpropagate(value)
 
-        action_probs = np.zeros(self.game.action_size)
+        action_probs = np.zeros(self.game.actionSize)
         for child in root.children:
-            action_probs[child.action_taken] = child.visit_count
+            action_probs[child.action_index] = child.visit_count
         action_probs /= np.sum(action_probs)
         return action_probs
-
-    def findMove(self, state, validMoves):
-        action_probs = self.search(state, self.model)
-        bestMove = np.argmax(action_probs)
-        chessMove = self.game.all_moves[bestMove]
-        return chessMove
 
 class ResNet(nn.Module):
     def __init__(self, game, num_resBlocks, num_hidden, device):
         super().__init__()
         self.device = device
         self.startBlock = nn.Sequential(
-            nn.Conv2d(3, num_hidden, kernel_size=3, padding=1),
+            nn.Conv2d(8, num_hidden, kernel_size=3, padding=1),
             nn.BatchNorm2d(num_hidden),
             nn.ReLU()
         )
@@ -310,7 +405,7 @@ class ResNet(nn.Module):
             nn.BatchNorm2d(32),
             nn.ReLU(),
             nn.Flatten(),
-            nn.Linear(32 * game.rowCount * game.columnCount, game.actionSize)
+            nn.Linear(32 * 8 * 6, game.actionSize)
         )
 
         self.valueHead = nn.Sequential(
@@ -318,7 +413,7 @@ class ResNet(nn.Module):
             nn.BatchNorm2d(3),
             nn.ReLU(),
             nn.Flatten(),
-            nn.Linear(3 * game.rowCount * game.columnCount, 1),
+            nn.Linear(3 * 8 * 6, 1),
             nn.Tanh()
         )
         self.to(device)
@@ -329,7 +424,7 @@ class ResNet(nn.Module):
             x = resBlock(x)
         policy = self.policyHead(x)
         value = self.valueHead(x)
-        return policy,
+        return policy, value
 
 class ResBlock(nn.Module):
     def __init__(self, num_hidden):
@@ -349,10 +444,10 @@ class ResBlock(nn.Module):
 
 args = {
     'C': 2,
-    'num_searches': 500,
-    'num_iterations' : 8,
-    'num_selfPlay_iterations' : 300,
-    'num_parallel_games' : 15,
+    'num_searches': 5,
+    'num_iterations' : 1,
+    'num_selfPlay_iterations' : 1,
+    'num_parallel_games' : 1,
     'num_epochs' : 4,
     'batch_size' : 64,
     'temperature' : 1.25,
@@ -360,3 +455,30 @@ args = {
     'dirichlet_alpha' : 0.3,
     'num_engine_games' : 100
 }
+device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+game = Game(device)
+player = 1
+
+state = chess.Board('rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR')
+move = chess.Move.from_uci('e2e3')
+
+
+
+model = ResNet(game, 2, 128, device)
+optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=0.0001)
+mcts = MCTS(args, state, player, game, model)
+
+alphazero = ChessTrain.AlphaZeroParallel(model, optimizer, game, args, Node)
+profiler = cProfile.Profile()
+alphazero.learn()
+profiler.enable()
+
+# Run the function you want to profile
+
+
+profiler.disable()
+profiler.dump_stats('output.prof')  # Save to a file
+
+# Load and view stats
+stats = pstats.Stats('output.prof')
+stats.strip_dirs().sort_stats('time').print_stats(10)  # Show top 10 functions by time
