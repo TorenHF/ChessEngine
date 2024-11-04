@@ -25,48 +25,34 @@ class Game:
             'r': 'R', 'n': 'N', 'b': 'B', 'q': 'Q', 'k': 'K', 'p': 'P',
             '.': '.', '1':'1', '2':'2', '3':'3', '4':'4', '5':'5', '6':'6', '7':'7', '8':'8'
         }
+        self.swap_pieces = {
+                'p': 'P', 'r': 'R', 'n': 'N', 'b': 'B', 'q': 'Q', 'k': 'K',
+                'P': 'p', 'R': 'r', 'N': 'n', 'B': 'b', 'Q': 'q', 'K': 'k'
+            }
+        self.swapDictionary_pieces = {}
         self.all_moves = self.getAllMoves()
 
     def changePerspective(self, state, player):
 
         if player == -1:
-            # Get the full FEN notation (including piece placement, turn, etc.)
             fen = state.fen()
-            # Split FEN into its components (piece placement, turn, etc.)
             parts = fen.split(' ')
-
-            # Split the board portion of FEN into rows and reverse them
             board_rows = parts[0].split('/')
-            flipped_rows = board_rows[::-1]
 
-            # Swap piece colors: lowercase (black) ↔ uppercase (white)
-            swapped_rows = []
+            flipped_fen = '/'.join(
+                ''.join(self.swap_pieces.get(char, char) for char in row)
+                for row in board_rows[::-1]
+            )
 
-            for row in flipped_rows:
-                swapped_row = ""
-                for char in row:
-                    # Check if the character is a piece and swap its color
-                    if char in 'prnbqk':  # Black to white
-                        swapped_row += char.upper()
-                    elif char in 'PRNBQK':  # White to black
-                        swapped_row += char.lower()
-                    else:
-                        # If it's a number (empty squares), keep it as it is
-                        swapped_row += char
-                swapped_rows.append(swapped_row)
-            # Reassemble the board part of the FEN
-            flipped_fen = '/'.join(swapped_rows)
 
-            # Replace the board part with the flipped and swapped version
             parts[0] = flipped_fen
 
-            # Flip the active color ('w' ↔ 'b')
+
             parts[1] = 'b' if parts[1] == 'w' else 'w'
 
-            # Reconstruct the full FEN and load it into a new board
+
             flipped_fen = ' '.join(parts)
             state = chess.Board(flipped_fen)
-
 
         return state
 
@@ -142,34 +128,32 @@ class Game:
         return True
 
     def piece_to_vector(self, piece):
-        if piece == chess.Piece(chess.PAWN, chess.WHITE):
-            return torch.tensor([1,0,0,0,0,0])
-        elif piece == chess.Piece(chess.BISHOP, chess.WHITE):
-            return torch.tensor([0,1,0,0,0,0])
-        elif piece == chess.Piece(chess.KNIGHT, chess.WHITE):
-            return torch.tensor([0,0,1,0,0,0])
-        elif piece == chess.Piece(chess.ROOK, chess.WHITE):
-            return torch.tensor([0,0,0,1,0,0])
-        elif piece == chess.Piece(chess.QUEEN, chess.WHITE):
-            return torch.tensor([0,0,0,0,1,0])
-        elif piece == chess.Piece(chess.KING, chess.WHITE):
-            return torch.tensor([0,0,0,0,0,1])
-        elif piece is None:
-            return torch.tensor([0,0,0,0,0,0])
+        if piece is None:
+            return np.array([0, 0, 0, 0, 0, 0], dtype=np.float32)
         elif piece == chess.Piece(chess.PAWN, chess.BLACK):
-            return torch.tensor([-1,0,0,0,0,0])
-        elif piece == chess.Piece(chess.BISHOP, chess.BLACK):
-            return torch.tensor([0,-1,0,0,0,0])
-        elif piece == chess.Piece(chess.KNIGHT, chess.BLACK):
-            return torch.tensor([0,0,-1,0,0,0])
+            return np.array([-1, 0, 0, 0, 0, 0], dtype=np.float32)
+        elif piece == chess.Piece(chess.PAWN, chess.WHITE):
+            return np.array([1, 0, 0, 0, 0, 0], dtype=np.float32)
         elif piece == chess.Piece(chess.ROOK, chess.BLACK):
-            return torch.tensor([0,0,0,-1,0,0])
-        elif piece == chess.Piece(chess.QUEEN, chess.BLACK):
-            return torch.tensor([0,0,0,0,-1,0])
+            return np.array([0, 0, 0, -1, 0, 0], dtype=np.float32)
+        elif piece == chess.Piece(chess.ROOK, chess.WHITE):
+            return np.array([0, 0, 0, 1, 0, 0], dtype=np.float32)
+        elif piece == chess.Piece(chess.BISHOP, chess.WHITE):
+            return np.array([0, 1, 0, 0, 0, 0], dtype=np.float32)
+        elif piece == chess.Piece(chess.KNIGHT, chess.WHITE):
+            return np.array([0, 0, 1, 0, 0, 0], dtype=np.float32)
+        elif piece == chess.Piece(chess.BISHOP, chess.BLACK):
+            return np.array([0, -1, 0, 0, 0, 0], dtype=np.float32)
+        elif piece == chess.Piece(chess.KNIGHT, chess.BLACK):
+            return np.array([0, 0, -1, 0, 0, 0], dtype=np.float32)
         elif piece == chess.Piece(chess.KING, chess.BLACK):
-            return torch.tensor([0, 0, 0, 0, 0, -1])
-
-
+            return np.array([0, 0, 0, 0, 0, -1], dtype=np.float32)
+        elif piece == chess.Piece(chess.KING, chess.WHITE):
+            return np.array([0, 0, 0, 0, 0, 1], dtype=np.float32)
+        elif piece == chess.Piece(chess.QUEEN, chess.WHITE):
+            return np.array([0, 0, 0, 0, 1, 0], dtype=np.float32)
+        elif piece == chess.Piece(chess.QUEEN, chess.BLACK):
+            return np.array([0, 0, 0, 0, -1, 0], dtype=np.float32)
 
 
     def getAllMoves(self):
@@ -182,38 +166,30 @@ class Game:
         return moves
 
     def get_binary_moves(self, board):
-        binaryMoves = []
         board.turn = chess.WHITE
-        for move in self.all_moves:
-            if board.is_legal(move):
-                binaryMoves.append(1)
-            else:
-                binaryMoves.append(0)
+        binaryMoves = [1 if board.is_legal(move) else 0 for move in self.all_moves]
         return binaryMoves
 
 
 
     def get_encoded_state(self, board):
-        encoded_state = torch.zeros((8, 8, 6), dtype=torch.float32)
+        encoded_state_np = np.zeros((8, 8, 6), dtype=np.float32)
 
         for row in range(self.rowCount):
             for column in range(self.columnCount):
                 piece = board.piece_at(chess.square(column, row))
-                sourceTensor = self.piece_to_vector(piece)
-                encoded_state[row, column] = sourceTensor.clone().detach()
+                encoded_state_np[row, column] = self.piece_to_vector(piece)
 
-
-        return encoded_state.to(self.device)
+        encoded_state = torch.tensor(encoded_state_np, dtype=torch.float32).to(self.device)
+        return encoded_state
 
     def get_encoded_state_parallel(self, states):
         encoded_states = torch.zeros((int(len(states)), 8, 8, 6), dtype=torch.float32)
         for idx, state in enumerate(states):
-            #encoded_state = torch.zeros((8, 8, 6), dtype=torch.float32)
             for row in range(self.rowCount):
                 for column in range(self.columnCount):
                     piece = state.piece_at(chess.square(column, row))
                     sourceTensor = self.piece_to_vector(piece)
-                    #encoded_state[row, column] = sourceTensor.clone().detach()
                     encoded_states[idx, row, column] = sourceTensor.clone().detach()
 
         return encoded_states.to(self.device)
@@ -479,8 +455,8 @@ profiler.enable()
 alphazero.learn()
 
 profiler.disable()
-profiler.dump_stats('output.prof.2')  # Save to a file
+profiler.dump_stats('output.prof.3')  # Save to a file
 
 # Load and view stats
-stats = pstats.Stats('output.prof.2')
-stats.strip_dirs().sort_stats('time').print_stats(25)  # Show top 10 functions by time
+stats = pstats.Stats('output.prof.3')
+stats.strip_dirs().sort_stats('time').print_stats(50)  # Show top 10 functions by time
