@@ -184,15 +184,17 @@ class Game:
         return encoded_state
 
     def get_encoded_state_parallel(self, states):
-        encoded_states = torch.zeros((int(len(states)), 8, 8, 6), dtype=torch.float32)
+        encoded_states_np = np.zeros((int(len(states)), 8, 8, 6), dtype=np.float32)
         for idx, state in enumerate(states):
             for row in range(self.rowCount):
                 for column in range(self.columnCount):
                     piece = state.piece_at(chess.square(column, row))
-                    sourceTensor = self.piece_to_vector(piece)
-                    encoded_states[idx, row, column] = sourceTensor.clone().detach()
+                    encoded_state_np = self.piece_to_vector(piece)
+                    encoded_states_np[idx, row, column] = encoded_state_np
 
-        return encoded_states.to(self.device)
+        encoded_states = torch.tensor(encoded_states_np, dtype=torch.float32).to(self.device)
+
+        return encoded_states
 
     def play(self, state, player):
         while True:
@@ -270,14 +272,15 @@ class Node:
         return q_value + self.args['C'] * (math.sqrt(self.visit_count) / (1 + child.visit_count)) * child.prior
 
     def expand(self, policy, player):
+        swapped_state = self.game.changePerspective(self.state, player=-1)
         for action, prob in enumerate(policy):
             if prob > 0:
-                child_state = self.state.copy()
+                child_state = swapped_state.copy()
                 move = self.game.all_moves[action]
+                flipped_move = self.game.flip_move(move, player=-1)
+                child_state.push(flipped_move)
 
-                child_state.push(move)
 
-                child_state = self.game.changePerspective(child_state, player=-1)
 
                 child = Node(self.game, self.args, child_state, self, move, action, prob)
                 self.children.append(child)
@@ -450,13 +453,7 @@ alphazero = ChessTrain.AlphaZeroParallel(model, optimizer, game, args, Node)
 profiler = cProfile.Profile()
 
 profiler.enable()
-
-# Run the function you want to profile
 alphazero.learn()
-
-profiler.disable()
-profiler.dump_stats('output.prof.3')  # Save to a file
-
 # Load and view stats
-stats = pstats.Stats('output.prof.3')
+stats = pstats.Stats('output.prof.2')
 stats.strip_dirs().sort_stats('time').print_stats(50)  # Show top 10 functions by time

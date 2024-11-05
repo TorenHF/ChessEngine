@@ -154,7 +154,7 @@ class MCTSParallel:
                 node = spg.root
 
                 while node.is_fully_expanded():
-                    node = node.select() #a move was made
+                    node = node.select()
 
                 value, is_terminal = self.game.get_value_and_terminate(node.state, 1)
                 value = self.game.getOpponentValue(value)
@@ -164,7 +164,6 @@ class MCTSParallel:
 
                 else:
                     spg.node = node
-
 
 
                 expandable_spGames = [mappingIdx for mappingIdx in range(len(spGames)) if spGames[mappingIdx].node is not None]
