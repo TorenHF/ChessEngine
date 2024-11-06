@@ -453,7 +453,7 @@ alphazero = ChessTrain.AlphaZeroParallel(model, optimizer, game, args, Node)
 profiler = cProfile.Profile()
 
 profiler.enable()
-alphazero.learn()
+
 # Load and view stats
 stats = pstats.Stats('output.prof.2')
 stats.strip_dirs().sort_stats('time').print_stats(50)  # Show top 10 functions by time
