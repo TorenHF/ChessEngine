@@ -32,7 +32,6 @@ class AlphaZeroParallel:
 
             for i in range(len(spGames))[::-1]:
                 spg = spGames[i]
-
                 action_probs = np.zeros(self.game.actionSize)
                 for child in spg.root.children:
                     action_probs[child.action_index] = child.visit_count
@@ -161,6 +160,7 @@ class MCTSParallel:
 
                 if is_terminal:
                     node.backpropagate(value)
+
 
                 else:
                     spg.node = node

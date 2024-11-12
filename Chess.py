@@ -18,7 +18,6 @@ class Game:
     def __init__(self, device):
         self.columnCount = 8
         self.rowCount = 8
-        self.actionSize = 1856
         self.device = device
         self.swapDictionary = {
             'R': 'r', 'N': 'n', 'B': 'b', 'Q': 'q', 'K': 'k', 'P': 'p',
@@ -31,6 +30,7 @@ class Game:
             }
         self.swapDictionary_pieces = {}
         self.all_moves = self.getAllMoves()
+        self.actionSize = len(self.all_moves)
 
     def changePerspective(self, state, player):
 
@@ -90,8 +90,6 @@ class Game:
         if state.is_checkmate():
             return 1, True
         elif state.is_stalemate():
-            return 0, True
-        elif num_moves > 10:
             return 0, True
         else:
             return 0, False
@@ -163,6 +161,10 @@ class Game:
                 move = chess.Move(source_square, target_square)
                 if not self.is_move_never_possible(move):
                     moves.append(move)
+        columns = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h' ]
+        for column in range(8):
+            moves.append(chess.Move.from_uci(f'{columns[column]}7{columns[column]}8q'))
+            moves.append(chess.Move.from_uci(f'{columns[column]}7{columns[column]}8r'))
         return moves
 
     def get_binary_moves(self, board):
@@ -218,7 +220,7 @@ class Game:
                 state = self.changePerspective(neutral_state, player)
 
 
-            value, is_terminal = self.get_value_and_terminate(state)
+            value, is_terminal = self.get_value_and_terminate(state, 1)
 
             if is_terminal:
                 print(state)
@@ -284,7 +286,6 @@ class Node:
 
                 child = Node(self.game, self.args, child_state, self, move, action, prob)
                 self.children.append(child)
-
         return child
 
     def simulate(self):
@@ -345,7 +346,7 @@ class MCTS:
             while node.is_fully_expanded():
                 node = node.select()
 
-            value, is_terminal = self.game.get_value_and_terminate(node.state)
+            value, is_terminal = self.game.get_value_and_terminate(node.state, 1)
             value = self.game.getOpponentValue(value)
 
             if not is_terminal:
@@ -425,7 +426,7 @@ class ResBlock(nn.Module):
 
 args = {
     'C': 2,
-    'num_searches': 500,
+    'num_searches': 5,
     'num_iterations' : 1,
     'num_selfPlay_iterations' : 5,
     'num_parallel_games' : 5,
