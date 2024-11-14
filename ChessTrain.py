@@ -23,7 +23,6 @@ class AlphaZeroParallel:
         memory = []
         player = 1
         state = chess.Board()
-        spGames = [SPG(self.game) for spg in range(self.args['num_parallel_games'])]
         num_moves = 0
         is_terminal = False
         print("start")
@@ -82,6 +81,7 @@ class AlphaZeroParallel:
                 # Compute the average of q and z (value_targets)
                 avg_qz = (q_values + value_targets) / 2.0
 
+
                 state, policy_targets, value_targets = np.array(state), np.array(policy_targets), np.array(value_targets).reshape(-1, 1)
 
                 state = torch.tensor(state, dtype=torch.float32, device=self.model.device)
@@ -111,9 +111,21 @@ class AlphaZeroParallel:
 
             self.model.eval()
             for selfPlay_iteration in range(self.args['num_selfPlay_iterations'] // self.args['num_parallel_games']):
-                with mp.Pool(processes=2) as pool:
-                    # Run selfPlay for each game_id in parallel
-                    memory = pool.map(self.selfPlay_wrapper, range(2))
+                queue = mp.Queue()
+                processes = []
+
+                for i in range(self.args['num_parallel_games']):
+                    p = mp.Process(target=self.selfPlay_wrapper, args=(queue, i))
+                    processes.append(p)
+                    p.start()
+
+                # Gather results
+                game_memory = [queue.get() for _ in range(self.args['num_parallel_games'])]
+                memory.extend(game_memory)
+
+                for p in processes:
+                    p.join()
+
                 print(f"iteration: {iteration}, game: {selfPlay_iteration}")
             print("complete")
 
@@ -125,8 +137,9 @@ class AlphaZeroParallel:
             torch.save(self.model.state_dict(), f"model_{iteration}.pt" )
             torch.save(self.optimizer.state_dict(), f"optimizer_{iteration}.pt")
 
-    def selfPlay_wrapper(self, idx):
-        return self.selfPlay()
+    def selfPlay_wrapper(self, queue, idx):
+        result = self.selfPlay()
+        queue.put(result)
 
 class SPG:
     def __init__(self, game):
