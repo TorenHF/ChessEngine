@@ -4,65 +4,62 @@ import torch.nn as nn
 import torch.nn.functional as F
 import random
 import chess
+import torch.multiprocessing as mp
+
 
 
 
 class AlphaZeroParallel:
-    def __init__(self, model, optimizer, game, args, node):
+    def __init__(self, model, optimizer, game, args, node, mcts):
         self.model = model
         self.optimizer = optimizer
         self.game = game
         self.args = args
-        self.mcts = MCTSParallel(game, args, model, node)
+        self.mcts = mcts
+        self.root = None
 
     def selfPlay(self):
         return_memory = []
+        memory = []
         player = 1
+        state = chess.Board()
         spGames = [SPG(self.game) for spg in range(self.args['num_parallel_games'])]
         num_moves = 0
+        is_terminal = False
+        print("start")
 
-        while len(spGames) > 0:
-            states = np.stack([spg.state for spg in spGames])
-
+        while not is_terminal:
             num_moves += 1
 
-            neutral_states = self.game.changePerspective_parallel(states, player)
-
-            self.mcts.search(neutral_states, spGames, player)
-
-            for i in range(len(spGames))[::-1]:
-                spg = spGames[i]
-                action_probs = np.zeros(self.game.actionSize)
-                for child in spg.root.children:
-                    action_probs[child.action_index] = child.visit_count
-                action_probs /= np.sum(action_probs)
-
-                spg.memory.append((spg.root.state, action_probs, player))
-
-                temperature_action_probs = action_probs ** (1 / self.args['temperature'])
-                temperature_action_probs /= np.sum(temperature_action_probs)  # Ensure it sums to 1
-                action = np.random.choice(len(temperature_action_probs), p=temperature_action_probs)
-                move = self.game.all_moves[action]
-
-                state_fen = spg.state.fen()
-                state = chess.Board(state_fen)
-                move = self.game.flip_move(move, player)
+            neutral_state = self.game.changePerspective(state, player)
+            action_probs, root = self.mcts.search(neutral_state)
 
 
-                state.push(move)
+            temperature_action_probs = action_probs ** (1 / self.args['temperature'])
+            temperature_action_probs /= np.sum(temperature_action_probs)  # Ensure it sums to 1
 
-                spg.state = state
-                value, is_terminal = self.game.get_value_and_terminate(state, num_moves)
+            action = np.random.choice(len(temperature_action_probs), p=temperature_action_probs)
+            move = self.game.all_moves[action]
+            move = self.game.flip_move(move, player)
+            state.push(move)
 
-                if is_terminal:
-                    for hist_neutral_state, hist_action_probs, hist_player in spg.memory:
-                        hist_outcome = value if hist_player == player else self.game.getOpponentValue(value)
-                        return_memory.append((
-                            self.game.get_encoded_state(hist_neutral_state).cpu().numpy(),
-                            hist_action_probs,
-                            hist_outcome
-                        ))
-                    del spGames[i]
+            value, is_terminal = self.game.get_value_and_terminate(state, num_moves)
+
+            # Save the π (action probabilities) and the Q value of the root node
+            q_value = root.value_sum / root.visit_count  # Q-value for the root node
+            memory.append((neutral_state, action_probs, player, q_value))  # Store q_value
+
+            if is_terminal:
+                print("done")
+                for hist_neutral_state, hist_action_probs, hist_player, hist_q_value in memory:
+                    hist_outcome = value if hist_player == player else self.game.getOpponentValue(value)
+                    return_memory.append((
+                        self.game.get_encoded_state(hist_neutral_state),
+                        hist_action_probs,
+                        hist_outcome,  # Use the final outcome as z
+                        hist_q_value  # Save q for training
+                    ))
+
 
 
             player = self.game.getOpponent(player)
@@ -71,25 +68,40 @@ class AlphaZeroParallel:
 
     # Here there is a possibility to add q in training
     def train(self, memory):
-        random.shuffle(memory)
-        for batchIdx in range(0, len(memory), self.args['batch_size']):
-            sample = memory[batchIdx:min(len(memory) -1, batchIdx+self.args['batch_size'])]
-            state, policy_targets, value_targets = zip(*sample)
 
-            state, policy_targets, value_targets = np.array(state), np.array(policy_targets), np.array(value_targets).reshape(-1, 1)
-            state = torch.tensor(state, dtype=torch.float32, device=self.model.device)
-            policy_targets = torch.tensor(policy_targets, dtype=torch.float32, device=self.model.device)
-            value_targets = torch.tensor(value_targets, dtype=torch.float32, device=self.model.device)
+        for game in range(2):
+            game_memory = memory[game]
+            random.shuffle(game_memory)
+            for batchIdx in range(0, len(memory), self.args['batch_size']):
+                sample = game_memory[batchIdx:min(len(memory) -1, batchIdx+self.args['batch_size'])]
 
-            out_policy, out_value = self.model(state)
+                state, policy_targets, value_targets, q_values = zip(*sample)
 
-            policy_loss = F.cross_entropy(out_policy, policy_targets)
-            value_loss = F.mse_loss(out_value, value_targets)
-            loss = policy_loss + value_loss
+                q_values = np.array(q_values).reshape(-1, 1)  # Reshape q_values
 
-            self.optimizer.zero_grad()
-            loss.backward()
-            self.optimizer.step()
+                # Compute the average of q and z (value_targets)
+                avg_qz = (q_values + value_targets) / 2.0
+
+                state, policy_targets, value_targets = np.array(state), np.array(policy_targets), np.array(value_targets).reshape(-1, 1)
+
+                state = torch.tensor(state, dtype=torch.float32, device=self.model.device)
+                policy_targets = torch.tensor(policy_targets, dtype=torch.float32, device=self.model.device)
+                avg_qz = torch.tensor(avg_qz, dtype=torch.float32, device=self.model.device)
+
+                out_policy, out_value = self.model(state)
+
+                # Policy loss remains the same
+                policy_loss = F.cross_entropy(out_policy, policy_targets)
+
+                # Value loss: train on the average of q and z
+                value_loss = F.mse_loss(out_value, avg_qz)
+
+                # Total loss
+                loss = policy_loss + value_loss
+
+                self.optimizer.zero_grad()
+                loss.backward()
+                self.optimizer.step()
 
 
     def learn(self):
@@ -99,8 +111,11 @@ class AlphaZeroParallel:
 
             self.model.eval()
             for selfPlay_iteration in range(self.args['num_selfPlay_iterations'] // self.args['num_parallel_games']):
-                memory += self.selfPlay()
+                with mp.Pool(processes=2) as pool:
+                    # Run selfPlay for each game_id in parallel
+                    memory = pool.map(self.selfPlay_wrapper, range(2))
                 print(f"iteration: {iteration}, game: {selfPlay_iteration}")
+            print("complete")
 
 
             self.model.train()
@@ -109,6 +124,9 @@ class AlphaZeroParallel:
 
             torch.save(self.model.state_dict(), f"model_{iteration}.pt" )
             torch.save(self.optimizer.state_dict(), f"optimizer_{iteration}.pt")
+
+    def selfPlay_wrapper(self, idx):
+        return self.selfPlay()
 
 class SPG:
     def __init__(self, game):
@@ -189,6 +207,5 @@ class MCTSParallel:
 
                     node.expand(spg_policy, player)
                     node.backpropagate(spg_value)
-
 
 

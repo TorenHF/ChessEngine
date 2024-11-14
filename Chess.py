@@ -7,6 +7,7 @@ import torch.nn.functional as F
 import ChessTrain
 import cProfile
 import pstats
+from multiprocessing import Pool
 
 
 
@@ -89,7 +90,7 @@ class Game:
     def get_value_and_terminate(self, state, num_moves):
         if state.is_checkmate():
             return 1, True
-        elif state.is_stalemate():
+        elif state.is_stalemate() or state.is_insufficient_material() or state.is_repetition(3):
             return 0, True
         else:
             return 0, False
@@ -164,7 +165,7 @@ class Game:
         columns = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h' ]
         for column in range(8):
             moves.append(chess.Move.from_uci(f'{columns[column]}7{columns[column]}8q'))
-            moves.append(chess.Move.from_uci(f'{columns[column]}7{columns[column]}8r'))
+            moves.append(chess.Move.from_uci(f'{columns[column]}7{columns[column]}8n'))
         return moves
 
     def get_binary_moves(self, board):
@@ -194,8 +195,8 @@ class Game:
                     encoded_state_np = self.piece_to_vector(piece)
                     encoded_states_np[idx, row, column] = encoded_state_np
 
-        encoded_states = torch.tensor(encoded_states_np, dtype=torch.float32).to(self.device)
 
+        encoded_states = torch.tensor(encoded_states_np, dtype=torch.float32).to(self.device)
         return encoded_states
 
     def play(self, state, player):
@@ -213,7 +214,7 @@ class Game:
                 state.push_san(action)
             else:
                 neutral_state = self.changePerspective(state, player)
-                mcts_probs = mcts.search(neutral_state)
+                mcts_probs, _ = mcts.search(neutral_state)
                 action = np.argmax(mcts_probs)
                 move = self.all_moves[action]
                 neutral_state.push(move)
@@ -351,7 +352,7 @@ class MCTS:
 
             if not is_terminal:
                 policy, value = model(
-                    torch.tensor(self.game.get_encoded_state(node.state), device=model.device).unsqueeze(0)
+                    self.game.get_encoded_state(state).clone().detach().to(model.device).unsqueeze(0)
                 )
                 policy = torch.softmax(policy, axis=1).squeeze(0).cpu().numpy()
                 valid_moves = self.game.get_binary_moves(node.state)
@@ -368,7 +369,7 @@ class MCTS:
         for child in root.children:
             action_probs[child.action_index] = child.visit_count
         action_probs /= np.sum(action_probs)
-        return action_probs
+        return action_probs, root
 
 class ResNet(nn.Module):
     def __init__(self, game, num_resBlocks, num_hidden, device):
@@ -450,11 +451,16 @@ model = ResNet(game, 5, 128, device)
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=0.0001)
 mcts = MCTS(args, state, player, game, model)
 
-alphazero = ChessTrain.AlphaZeroParallel(model, optimizer, game, args, Node)
 profiler = cProfile.Profile()
 
-profiler.enable()
+
+if __name__ == '__main__':
+    alphazero = ChessTrain.AlphaZeroParallel(model, optimizer, game, args, Node, mcts)
+    alphazero.learn()
+
+
+
 
 # Load and view stats
 stats = pstats.Stats('output.prof.2')
-stats.strip_dirs().sort_stats('time').print_stats(50)  # Show top 10 functions by time
+#stats.strip_dirs().sort_stats('time').print_stats(50)  # Show top 10 functions by time
