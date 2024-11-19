@@ -1,12 +1,12 @@
 import numpy as np
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 import random
 import chess
 import torch.multiprocessing as mp
+from functools import partial
 
-
+from Chess import selfPlay_wrapper
 
 
 class AlphaZeroParallel:
@@ -16,6 +16,7 @@ class AlphaZeroParallel:
         self.game = game
         self.args = args
         self.mcts = mcts
+        self.state = chess.Board()
         self.root = None
 
     def selfPlay(self):
@@ -25,8 +26,8 @@ class AlphaZeroParallel:
         state = chess.Board()
         num_moves = 0
         is_terminal = False
-        print("start")
 
+        print("s")
         while not is_terminal:
             num_moves += 1
 
@@ -49,11 +50,11 @@ class AlphaZeroParallel:
             memory.append((neutral_state, action_probs, player, q_value))  # Store q_value
 
             if is_terminal:
-                print("done")
+                #print(num_moves)
                 for hist_neutral_state, hist_action_probs, hist_player, hist_q_value in memory:
                     hist_outcome = value if hist_player == player else self.game.getOpponentValue(value)
                     return_memory.append((
-                        self.game.get_encoded_state(hist_neutral_state),
+                        self.game.get_encoded_state(hist_neutral_state).cpu(),
                         hist_action_probs,
                         hist_outcome,  # Use the final outcome as z
                         hist_q_value  # Save q for training
@@ -68,78 +69,149 @@ class AlphaZeroParallel:
     # Here there is a possibility to add q in training
     def train(self, memory):
 
-        for game in range(2):
-            game_memory = memory[game]
-            random.shuffle(game_memory)
-            for batchIdx in range(0, len(memory), self.args['batch_size']):
-                sample = game_memory[batchIdx:min(len(memory) -1, batchIdx+self.args['batch_size'])]
+        device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+        self.model.to(device)
+        random.shuffle(memory)
 
-                state, policy_targets, value_targets, q_values = zip(*sample)
+        for batchIdx in range(0, len(memory), self.args['batch_size']):
+            sample = memory[batchIdx:min(len(memory) -1, batchIdx+self.args['batch_size'])]
 
-                q_values = np.array(q_values).reshape(-1, 1)  # Reshape q_values
-
-                # Compute the average of q and z (value_targets)
-                avg_qz = (q_values + value_targets) / 2.0
+            state, policy_targets, value_targets, q_values = zip(*sample)
 
 
-                state, policy_targets, value_targets = np.array(state), np.array(policy_targets), np.array(value_targets).reshape(-1, 1)
+            q_values = np.array(q_values).reshape(-1, 1)  # Reshape q_values
 
-                state = torch.tensor(state, dtype=torch.float32, device=self.model.device)
-                policy_targets = torch.tensor(policy_targets, dtype=torch.float32, device=self.model.device)
-                avg_qz = torch.tensor(avg_qz, dtype=torch.float32, device=self.model.device)
+            state, policy_targets, value_targets = np.array(state), np.array(policy_targets), np.array(value_targets).reshape(-1, 1)
 
-                out_policy, out_value = self.model(state)
+            avg_qz = (q_values + value_targets) / 2.0
 
-                # Policy loss remains the same
-                policy_loss = F.cross_entropy(out_policy, policy_targets)
+            state = torch.tensor(state, dtype=torch.float32, device=self.model.device)
+            policy_targets = torch.tensor(policy_targets, dtype=torch.float32, device=self.model.device)
+            avg_qz = torch.tensor(avg_qz, dtype=torch.float32, device=self.model.device)
 
-                # Value loss: train on the average of q and z
-                value_loss = F.mse_loss(out_value, avg_qz)
+            out_policy, out_value = self.model(state)
 
-                # Total loss
-                loss = policy_loss + value_loss
+            # Policy loss remains the same
+            policy_loss = F.cross_entropy(out_policy, policy_targets)
 
-                self.optimizer.zero_grad()
-                loss.backward()
-                self.optimizer.step()
+            # Value loss: train on the average of q and z
+            value_loss = F.mse_loss(out_value, avg_qz)
 
+            # Total loss
+            loss = policy_loss + value_loss
+
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
+
+        self.model.to('cpu')
 
     def learn(self):
-        for iteration in range(self.args['num_iterations']):
-            memory = []
+        # Move the model to CPU to make it picklable
+        mp.set_start_method('spawn', force=True)
+        # Move the model to CPU memory so it can be shared (pickled) with worker processes
+        self.model.to('cpu')
 
 
+        selfPlay_partial = partial(selfPlay_wrapper, self.mcts, self.game, self.args, self.model, self.model.state_dict())
+        with mp.Pool(processes=self.args['num_parallel_games']) as pool:
+            for iteration in range(self.args['num_iterations']):
+                self.model.eval()
+                memory = []
+
+                # Number of batches of self-play games performed in parallel
+                num_batches = self.args['num_selfPlay_iterations'] // self.args['num_parallel_games']
+
+                for selfPlay_iteration in range(num_batches):
+                    async_results = []
+                    # Distribute self-play tasks to worker processes using the partial function
+                    results = pool.map(selfPlay_partial, range(self.args['num_parallel_games']))
+
+                    # Combine all game memories
+                    for idx, (success, result, num_moves) in enumerate(results):
+                        if success:
+                            game_memory = result
+                            memory.extend(game_memory)
+                            with open('output.num_moves.data', 'a') as f:
+                                f.write('\n' + str(num_moves))
+
+
+
+                # Training phase
+                self.model.train()
+                for epoch in range(self.args['num_epochs']):
+                    self.train(memory)
+
+                # After training, move the model back to CPU for pickling in next iteration
+                self.model.to('cpu')
+
+                # Save model and optimizer state
+                torch.save(self.model.state_dict(), f"model_{iteration}.pt")
+                torch.save(self.optimizer.state_dict(), f"optimizer_{iteration}.pt")
+
+
+    def learn_old(self):
+            mp.set_start_method('spawn', force=True)
+            for iteration in range(self.args['num_iterations']):
+                memory = []
+
+
+                self.model.eval()
+                for selfPlay_iteration in range(self.args['num_selfPlay_iterations'] // self.args['num_parallel_games']):
+                    queue = mp.Queue()
+                    processes = []
+
+                    for i in range(self.args['num_parallel_games']):
+                        p = mp.Process(target=self.selfPlay_wrapper, args=(queue, i))
+                        processes.append(p)
+                        p.start()
+
+                    # Gather results
+                    game_memory = [queue.get() for _ in range(self.args['num_parallel_games'])]
+                    memory.extend(game_memory)
+
+                    for p in processes:
+                        p.join()
+
+                    print(f"iteration: {iteration}, game: {selfPlay_iteration}")
+                print("complete")
+
+
+                self.model.train()
+                for epoch in range(self.args['num_epochs']):
+                    self.train(memory)
+
+                torch.save(self.model.state_dict(), f"model_{iteration}.pt" )
+                torch.save(self.optimizer.state_dict(), f"optimizer_{iteration}.pt")
+
+    def selfPlay_wrapper_old(self, model_state_dict, i):
+        # Load the model state dictionary for this worker
+        self.model.load_state_dict(model_state_dict)
+        # Move model to the device (GPU or CPU) as needed
+        self.model.to("mps" if torch.backends.mps.is_available() else "cpu")
+
+        # Perform a self-play game and return its memory
+        return self.selfPlay()
+
+    def selfPlay_wrapper_1(self, model_state_dict, idx):
+        try:
+            # Initialize device
+            # Load the model state dictionary for this worker
+            self.model.load_state_dict(model_state_dict)
+
+            # Move model to the device (GPU or CPU) as needed
+            self.model.to("mps" if torch.backends.mps.is_available() else "cpu")
             self.model.eval()
-            for selfPlay_iteration in range(self.args['num_selfPlay_iterations'] // self.args['num_parallel_games']):
-                queue = mp.Queue()
-                processes = []
-
-                for i in range(self.args['num_parallel_games']):
-                    p = mp.Process(target=self.selfPlay_wrapper, args=(queue, i))
-                    processes.append(p)
-                    p.start()
-
-                # Gather results
-                game_memory = [queue.get() for _ in range(self.args['num_parallel_games'])]
-                memory.extend(game_memory)
-
-                for p in processes:
-                    p.join()
-
-                print(f"iteration: {iteration}, game: {selfPlay_iteration}")
-            print("complete")
 
 
-            self.model.train()
-            for epoch in range(self.args['num_epochs']):
-                self.train(memory)
+            result = self.selfPlay()
 
-            torch.save(self.model.state_dict(), f"model_{iteration}.pt" )
-            torch.save(self.optimizer.state_dict(), f"optimizer_{iteration}.pt")
+            return (True, result)  # Return the result to the main process
 
-    def selfPlay_wrapper(self, queue, idx):
-        result = self.selfPlay()
-        queue.put(result)
+        except Exception as e:
+            print(f"Worker {idx}: Exception occurred: {e}")
+            return (False, e)# Re-raise exception to be caught in the main process
+
 
 class SPG:
     def __init__(self, game):
