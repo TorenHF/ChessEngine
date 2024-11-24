@@ -111,16 +111,22 @@ class AlphaZeroParallel:
         mp.set_start_method('spawn', force=True)
         # Move the model to CPU memory so it can be shared (pickled) with worker processes
         self.model.to('cpu')
+        max_batch = self.args['num_max_parallel']
+
+        # Number of batches of self-play games performed in parallel
+        num_batches = self.args['num_selfPlay_iterations'] // self.args['num_parallel_games']
 
 
-        selfPlay_partial = partial(selfPlay_wrapper, self.mcts, self.game, self.args, self.model, self.model.state_dict())
         with mp.Pool(processes=self.args['num_parallel_games']) as pool:
             for iteration in range(self.args['num_iterations']):
                 self.model.eval()
                 memory = []
 
-                # Number of batches of self-play games performed in parallel
-                num_batches = self.args['num_selfPlay_iterations'] // self.args['num_parallel_games']
+                self.args['num_searches'] = -0.001 * np.exp(-0.8 * iteration + 13) + 500
+                selfPlay_partial = partial(selfPlay_wrapper, self.mcts, self.game, self.args, self.model,
+                                           self.model.state_dict())
+
+
 
                 for selfPlay_iteration in range(num_batches):
                     async_results = []
@@ -148,6 +154,19 @@ class AlphaZeroParallel:
                 # Save model and optimizer state
                 torch.save(self.model.state_dict(), f"model_{iteration}.pt")
                 torch.save(self.optimizer.state_dict(), f"optimizer_{iteration}.pt")
+
+                if num_batches >= max_batch:
+                    num_batches = max_batch
+                else:
+                    num_batches *= 2
+
+
+
+
+
+
+
+
 
 
     def learn_old(self):
