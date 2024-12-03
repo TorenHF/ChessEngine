@@ -532,7 +532,7 @@ profiler = cProfile.Profile()
 
 if __name__ == '__main__':
     #profiler.enable()
-    print(np.__version__)
+
     alphazero = ChessTrain.AlphaZeroParallel(model, optimizer, game, args, Node, mcts)
     alphazero.learn()
     #alphazero.learn()
