@@ -431,6 +431,7 @@ def selfPlay_wrapper(mcts, game, args, model, model_state_dict, i):
 
         # Initialize device
         device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+        print(args['num_searches'], args['num_selfPlay_iterations'])
 
         #game = Game(device)
 
@@ -497,9 +498,9 @@ def selfPlay(game, mcts, args):
 
 args = {
     'C': 2,
-    'num_searches': 500,
+    'num_searches': 50,
     'num_iterations' : 5,
-    'num_selfPlay_iterations' : 220,
+    'num_selfPlay_iterations_start' : 220,
     'num_parallel_games' : 11,
     'num_epochs' : 4,
     'batch_size' : 64,
@@ -507,7 +508,9 @@ args = {
     'dirichlet_epsilon' : 0.25,
     'dirichlet_alpha' : 0.3,
     'num_engine_games' : 100,
-    'num_max_parallel' : 400
+    'num_max_parallel_batches' : 20,
+    'num_max_searches' : 500
+
 }
 device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 game = Game(device)
@@ -533,8 +536,8 @@ if __name__ == '__main__':
     #alphazero.learn()
     #profiler.disable()
     #profiler.dump_stats('output.prof.Parallel')
-    stats = pstats.Stats('output.prof.Parallel')
-    stats.strip_dirs().sort_stats('cumtime').print_stats(100)  # Show top 10 functions by time
+    #stats = pstats.Stats('output.prof.2')
+    #stats.strip_dirs().sort_stats('cumtime').print_stats(100)  # Show top 10 functions by time
 
 # Load and view stats
 

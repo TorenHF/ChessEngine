@@ -100,6 +100,9 @@ class AlphaZeroParallel:
             # Total loss
             loss = policy_loss + value_loss
 
+            with open('output.loss_data', 'a') as f:
+                f.write('\n' + str(loss))
+
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
@@ -111,20 +114,25 @@ class AlphaZeroParallel:
         mp.set_start_method('spawn', force=True)
         # Move the model to CPU memory so it can be shared (pickled) with worker processes
         self.model.to('cpu')
-        max_batch = self.args['num_max_parallel']
 
-        # Number of batches of self-play games performed in parallel
-        num_batches = self.args['num_selfPlay_iterations'] // self.args['num_parallel_games']
-
+        max_games = self.args['num_max_parallel_batches'] * self.args['num_parallel_games'] + self.args['num_parallel_games']
+        start_parameter_mcts = self.args['num_searches'] - self.args['num_mac_searches']
+        start_parameter_spg = self.args['num_parallel-games'] - max_games
 
         with mp.Pool(processes=self.args['num_parallel_games']) as pool:
             for iteration in range(self.args['num_iterations']):
                 self.model.eval()
                 memory = []
 
-                self.args['num_searches'] = -0.001 * np.exp(-0.8 * iteration + 13) + 500
+                self.args['num_searches'] =  start_parameter_mcts * np.exp(-iteration * 0.5) + self.args['num_max_searches']
+                self.args['num_selfPlay_iterations'] = start_parameter_spg * np.exp(-iteration * 0.5) + max_games
+
+
                 selfPlay_partial = partial(selfPlay_wrapper, self.mcts, self.game, self.args, self.model,
                                            self.model.state_dict())
+
+
+                num_batches = self.args['num_selfPlay_iterations'] // self.args['num_parallel_games']
 
 
 
@@ -155,10 +163,7 @@ class AlphaZeroParallel:
                 torch.save(self.model.state_dict(), f"model_{iteration}.pt")
                 torch.save(self.optimizer.state_dict(), f"optimizer_{iteration}.pt")
 
-                if num_batches >= max_batch:
-                    num_batches = max_batch
-                else:
-                    num_batches *= 2
+
 
 
 
