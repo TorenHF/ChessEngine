@@ -500,7 +500,7 @@ args = {
     'C': 2,
     'num_searches': 50,
     'num_iterations' : 5,
-    'num_selfPlay_iterations_start' : 220,
+    'num_selfPlay_iterations_start' : 22,
     'num_parallel_games' : 11,
     'num_epochs' : 4,
     'batch_size' : 64,
@@ -527,12 +527,14 @@ mcts = MCTS(args, state, player, game, model)
 
 profiler = cProfile.Profile()
 
-state_dict_2 = torch.load("model_4.pt")
-model.load_state_dict(state_dict_2)
+#state_dict_2 = torch.load("model_4.pt")
+#model.load_state_dict(state_dict_2)
 
 if __name__ == '__main__':
     #profiler.enable()
+    print(np.__version__)
     alphazero = ChessTrain.AlphaZeroParallel(model, optimizer, game, args, Node, mcts)
+    alphazero.learn()
     #alphazero.learn()
     #profiler.disable()
     #profiler.dump_stats('output.prof.Parallel')
