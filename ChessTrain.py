@@ -27,7 +27,7 @@ class AlphaZeroParallel:
         num_moves = 0
         is_terminal = False
 
-        print("s")
+
         while not is_terminal:
             num_moves += 1
 
@@ -69,8 +69,6 @@ class AlphaZeroParallel:
     # Here there is a possibility to add q in training
     def train(self, memory):
 
-        device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
-        self.model.to(device)
         random.shuffle(memory)
 
         for batchIdx in range(0, len(memory), self.args['batch_size']):
@@ -107,13 +105,13 @@ class AlphaZeroParallel:
             loss.backward()
             self.optimizer.step()
 
-        self.model.to('cpu')
+
 
     def learn(self):
         # Move the model to CPU to make it picklable
         mp.set_start_method('spawn', force=True)
         # Move the model to CPU memory so it can be shared (pickled) with worker processes
-        self.model.to('cpu')
+
 
         max_games = self.args['num_max_parallel_batches'] * self.args['num_parallel_games'] + self.args['num_parallel_games']
         start_parameter_mcts = self.args['num_searches'] - self.args['num_max_searches']
