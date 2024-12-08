@@ -4,6 +4,7 @@
 # Allow specific files
 !Chess.py
 !ChessTrain.py
+!requirements
 
 # Retain existing Python and project-related ignores
 
