@@ -1,7 +1,12 @@
+# Ignore everything by default
+*
 
-.idea/workspace.xml
+# Allow specific files
+!Chess.py
+!ChessTrain.py
 
-__pycache__/
+# Retain existing Python and project-related ignores
+
 *.py[cod]
 *$py.class
 
@@ -29,8 +34,6 @@ share/python-wheels/
 MANIFEST
 
 # PyInstaller
-# Usually these files are written by a python script from a template
-# before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec
 
@@ -93,10 +96,8 @@ celerybeat-schedule
 .env.*
 
 # virtualenv
-venv/
 ENV/
 env/
-.venv/
 .ENV/
 env.bak/
 venv.bak/
