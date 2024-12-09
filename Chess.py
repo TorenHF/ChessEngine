@@ -6,8 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import ChessTrain
 import cProfile
-import pstats
-from multiprocessing import Pool
+import time
 
 
 
@@ -426,82 +425,17 @@ class ResBlock(nn.Module):
         return x
 
 
-def selfPlay_wrapper(mcts, game, args, model, model_state_dict, i):
-    try:
-
-        # Initialize device
-        device = torch.device("cpu")
 
 
-        #game = Game(device)
 
-        # Load the model state dictionary for this worker
-        #model = ResNet(game, num_resBlocks=12, num_hidden=128, device=device)
-        model.load_state_dict(model_state_dict)
-
-        # Move model to the device (GPU or CPU) as needed
-        model.to(device)
-        model.eval()
-
-        #mcts = MCTS(args, None, 1, game, model)
-        result, num_moves = selfPlay(game, mcts, args)
-
-        return (True, result, num_moves)  # Return the result to the main process
-
-    except Exception as e:
-        print(f"Worker {i}: Exception occurred: {e}")
-        return (False, e, 0)  # Re-raise exception to be caught in the main process
-
-
-def selfPlay(game, mcts, args):
-    return_memory = []
-    memory = []
-    player = 1
-    state = chess.Board()
-    num_moves = 0
-    is_terminal = False
-
-    while not is_terminal:
-        num_moves += 1
-
-        neutral_state = game.changePerspective(state, player)
-        action_probs, root = mcts.search(neutral_state)
-
-        temperature_action_probs = action_probs ** (1 / args['temperature'])
-        temperature_action_probs /= np.sum(temperature_action_probs)  # Ensure it sums to 1
-
-        action = np.random.choice(len(temperature_action_probs), p=temperature_action_probs)
-        move = game.all_moves[action]
-        move = game.flip_move(move, player)
-        state.push(move)
-
-        value, is_terminal = game.get_value_and_terminate(state, num_moves)
-
-        # Save the π (action probabilities) and the Q value of the root node
-        q_value = root.value_sum / root.visit_count  # Q-value for the root node
-        memory.append((neutral_state, action_probs, player, q_value))  # Store q_value
-
-        if is_terminal:
-            for hist_neutral_state, hist_action_probs, hist_player, hist_q_value in memory:
-                hist_outcome = value if hist_player == player else game.getOpponentValue(value)
-                return_memory.append((
-                    game.get_encoded_state(hist_neutral_state).cpu(),
-                    hist_action_probs,
-                    hist_outcome,  # Use the final outcome as z
-                    hist_q_value  # Save q for training
-                ))
-
-        player = game.getOpponent(player)
-
-    return return_memory, num_moves
 
 
 args = {
     'C': 2,
     'num_searches': 50,
     'num_iterations' : 5,
-    'num_selfPlay_iterations_start' : 36,
-    'num_parallel_games' : 36,
+    'num_selfPlay_iterations_start' : 4,
+    'num_parallel_games' : 4,
     'num_epochs' : 4,
     'batch_size' : 64,
     'temperature' : 1.25,
@@ -529,12 +463,15 @@ profiler = cProfile.Profile()
 
 #state_dict_2 = torch.load("model_4.pt")
 #model.load_state_dict(state_dict_2)
+def run(test):
+    alphazero = ChessTrain.AlphaZeroParallel(model, optimizer, game, args, Node, mcts)
+    alphazero.learn(test)
 
 if __name__ == '__main__':
     #profiler.enable()
 
     alphazero = ChessTrain.AlphaZeroParallel(model, optimizer, game, args, Node, mcts)
-    alphazero.learn()
+    alphazero.learn(test=False)
     #alphazero.learn()
     #profiler.disable()
     #profiler.dump_stats('output.prof.Parallel')

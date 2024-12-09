@@ -5,8 +5,9 @@ import random
 import chess
 import torch.multiprocessing as mp
 from functools import partial
+import time
+import os
 
-from Chess import selfPlay_wrapper
 
 
 class AlphaZeroParallel:
@@ -107,7 +108,7 @@ class AlphaZeroParallel:
 
 
 
-    def learn(self):
+    def learn(self, test):
         # Move the model to CPU to make it picklable
         mp.set_start_method('spawn', force=True)
         # Move the model to CPU memory so it can be shared (pickled) with worker processes
@@ -127,7 +128,7 @@ class AlphaZeroParallel:
 
 
                 selfPlay_partial = partial(selfPlay_wrapper, self.mcts, self.game, self.args, self.model,
-                                           self.model.state_dict())
+                                           self.model.state_dict(), test)
 
 
                 num_batches = self.args['num_selfPlay_iterations'] // self.args['num_parallel_games']
@@ -146,6 +147,16 @@ class AlphaZeroParallel:
                             memory.extend(game_memory)
                             with open('output.num_moves.data', 'a') as f:
                                 f.write('\n' + str(num_moves))
+
+                    if test:
+                        with open('start_logs.data', 'w') as outfile:
+                            for i in range(self.args['num_parallel_games']):
+                                log_filename = f"worker_{i}_start_log.data"
+                                with open(log_filename, 'r') as infile:
+                                    outfile.write(infile.read())
+                        cleanup_logs(self.args['num_parallel_games'])
+
+
 
 
 
@@ -315,4 +326,85 @@ class MCTSParallel:
                     node.expand(spg_policy, player)
                     node.backpropagate(spg_value)
 
+def cleanup_logs(num_workers):
+    for i in range(num_workers):
+        log_filename_1 = f"worker_{i}_start_log.data"
+        log_filename_2 = f"worker_{i}_move_log.data"
+        if os.path.exists(log_filename_1):
+            os.remove(log_filename_1)
+        if os.path.exists(log_filename_2):
+            os.remove(log_filename_2)
+def selfPlay_wrapper(mcts, game, args, model, model_state_dict, test, i):
+    try:
 
+        # Initialize device
+        device = torch.device("cpu")
+        if test:
+            with open(f"worker_{i}_start_log.data", 'a') as f:
+                f.write(f'\n started at {time.time()}')
+
+
+        #game = Game(device)
+
+        # Load the model state dictionary for this worker
+        #model = ResNet(game, num_resBlocks=12, num_hidden=128, device=device)
+        model.load_state_dict(model_state_dict)
+
+        # Move model to the device (GPU or CPU) as needed
+        model.to(device)
+        model.eval()
+
+        #mcts = MCTS(args, None, 1, game, model)
+        result, num_moves = selfPlay(game, mcts, args, i, test)
+
+        return (True, result, num_moves)  # Return the result to the main process
+
+    except Exception as e:
+        print(f"Worker {i}: Exception occurred: {e}")
+        return (False, e, 0)  # Re-raise exception to be caught in the main process
+
+def selfPlay(game, mcts, args, i, test):
+    return_memory = []
+    memory = []
+    player = 1
+    state = chess.Board()
+    num_moves = 0
+    is_terminal = False
+
+    while not is_terminal:
+        num_moves += 1
+
+        if test:
+            with open(f"worker_{i}_move_log.data", 'a') as f:
+                f.write(f'\n {num_moves} played at {time.time()}')
+
+        neutral_state = game.changePerspective(state, player)
+        action_probs, root = mcts.search(neutral_state)
+
+        temperature_action_probs = action_probs ** (1 / args['temperature'])
+        temperature_action_probs /= np.sum(temperature_action_probs)  # Ensure it sums to 1
+
+        action = np.random.choice(len(temperature_action_probs), p=temperature_action_probs)
+        move = game.all_moves[action]
+        move = game.flip_move(move, player)
+        state.push(move)
+
+        value, is_terminal = game.get_value_and_terminate(state, num_moves)
+
+        # Save the π (action probabilities) and the Q value of the root node
+        q_value = root.value_sum / root.visit_count  # Q-value for the root node
+        memory.append((neutral_state, action_probs, player, q_value))  # Store q_value
+
+        if is_terminal:
+            for hist_neutral_state, hist_action_probs, hist_player, hist_q_value in memory:
+                hist_outcome = value if hist_player == player else game.getOpponentValue(value)
+                return_memory.append((
+                    game.get_encoded_state(hist_neutral_state).cpu(),
+                    hist_action_probs,
+                    hist_outcome,  # Use the final outcome as z
+                    hist_q_value  # Save q for training
+                ))
+
+        player = game.getOpponent(player)
+
+    return return_memory, num_moves
