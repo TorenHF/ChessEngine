@@ -341,7 +341,7 @@ def selfPlay_wrapper(mcts, game, args, model, model_state_dict, test, i):
         device = torch.device("cpu")
         if test:
             with open(f"worker_{i}_start_log.data", 'a') as f:
-                f.write(f'\n started at {time.time()}')
+                f.write(f'\n started at {time.localtime()}')
 
 
         #game = Game(device)
@@ -356,6 +356,9 @@ def selfPlay_wrapper(mcts, game, args, model, model_state_dict, test, i):
 
         #mcts = MCTS(args, None, 1, game, model)
         result, num_moves = selfPlay(game, mcts, args, i, test)
+        if test:
+            with open(f"worker_{i}_move_log.data", 'a') as f:
+                f.write(f'\n finished at {time.localtime()}')
 
         return (True, result, num_moves)  # Return the result to the main process
 
@@ -376,7 +379,7 @@ def selfPlay(game, mcts, args, i, test):
 
         if test:
             with open(f"worker_{i}_move_log.data", 'a') as f:
-                f.write(f'\n {num_moves} played at {time.time()}')
+                f.write(f'\n {num_moves} played at {time.localtime()}')
 
         neutral_state = game.changePerspective(state, player)
         action_probs, root = mcts.search(neutral_state)
