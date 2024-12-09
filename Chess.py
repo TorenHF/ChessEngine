@@ -433,8 +433,8 @@ class ResBlock(nn.Module):
 args = {
     'C': 2,
     'num_searches': 50,
-    'num_iterations' : 5,
-    'num_selfPlay_iterations_start' : 4,
+    'num_iterations' : 11,
+    'num_selfPlay_iterations_start' : 11,
     'num_parallel_games' : 4,
     'num_epochs' : 4,
     'batch_size' : 64,
