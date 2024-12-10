@@ -6,6 +6,7 @@
 !ChessTrain.py
 !requirements
 !ChessTest.py
+!*.pt
 
 # Retain existing Python and project-related ignores
 
