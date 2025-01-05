@@ -4,6 +4,8 @@ import torch
 import math
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.cpu import is_available
+
 import ChessTrain
 import cProfile
 import time
@@ -91,6 +93,16 @@ class Game:
             return 1, True
         elif state.is_stalemate() or state.is_insufficient_material() or state.is_repetition(3):
             return 0, True
+        elif num_moves > 567:
+            return 0, True
+        else:
+            return 0, False
+
+    def get_value_and_terminate_mcts(self, state):
+        if state.is_checkmate():
+            return 1, True
+        elif state.is_stalemate() or state.is_insufficient_material() or state.is_repetition(3):
+            return -0.05, True
         else:
             return 0, False
 
@@ -202,22 +214,18 @@ class Game:
         while True:
             print(state)
             if player == 1:
-                valid_moves = state.legal_moves
-                #print("Valid moves:", [i for i in range(self.action_size) if valid_moves[i] == 1])
                 print(state.legal_moves)
                 action = str(input(f"Player {player}, enter your move: "))
 
-                #if valid_moves[action] == 0:
-                    #print("Action not valid. Try again.")
-                    #continue
                 state.push_san(action)
             else:
                 neutral_state = self.changePerspective(state, player)
                 mcts_probs, _ = mcts.search(neutral_state)
                 action = np.argmax(mcts_probs)
                 move = self.all_moves[action]
-                neutral_state.push(move)
-                state = self.changePerspective(neutral_state, player)
+                move = self.flip_move(move, player)
+                state.push(move)
+                print(move)
 
 
             value, is_terminal = self.get_value_and_terminate(state, 1)
@@ -346,7 +354,7 @@ class MCTS:
             while node.is_fully_expanded():
                 node = node.select()
 
-            value, is_terminal = self.game.get_value_and_terminate(node.state, 1)
+            value, is_terminal = self.game.get_value_and_terminate_mcts(node.state)
             value = self.game.getOpponentValue(value)
 
             if not is_terminal:
@@ -431,52 +439,50 @@ class ResBlock(nn.Module):
 
 
 args = {
-    'C': 2,
-    'num_searches': 50,
-    'num_iterations' : 1,
-    'num_selfPlay_iterations_start' : 10,
-    'num_parallel_games' : 10,
+    'C': 1,
+    'num_searches': 1000,
+    'num_iterations' : 100,
+    'num_selfPlay_iterations' : 385,
+    'num_parallel_games' : 11,
     'num_epochs' : 4,
-    'batch_size' : 64,
-    'temperature' : 1.25,
-    'dirichlet_epsilon' : 0.25,
-    'dirichlet_alpha' : 0.3,
+    'num_win_epochs' : 2,
+    'batch_size' : 256,
+    'wins_batch_size' : 64,
+    'temperature' : 2,
+    'dirichlet_epsilon' : 0.5,
+    'dirichlet_alpha' : 0.6,
     'num_engine_games' : 100,
-    'num_max_parallel_batches' : 12,
-    'num_max_searches' : 500
+    'num_max_parallel_batches' : 20,
+    'num_max_searches' : 400
 
 }
-device = torch.device("cpu")
+device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 game = Game(device)
 player = 1
 
-state = chess.Board()
+state = chess.Board("7r/8/5p2/3p3p/4b2P/1nk5/p6K/3R4")
 move = chess.Move.from_uci('e2e3')
 
 
 
-model = ResNet(game, 12, 128, device)
-optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=0.0001)
-mcts = MCTS(args, state, player, game, model)
 
+model_state_dict = torch.load('model_5_stockfish_training.pt')
+new_optimizer_state_dict = torch.load('optimizer_41_complete_restart.pt')
+
+model = ResNet(game, 12, 128, device)
+new_model = ResNet(game, 8, 64, device)
+optimizer = torch.optim.Adam(new_model.parameters(), lr=0.001, weight_decay=0.0001)
+
+model.load_state_dict(model_state_dict)
+optimizer.load_state_dict(new_optimizer_state_dict)
+
+mcts = MCTS(args, state, player, game, model)
+alphazero = ChessTrain.AlphaZeroParallel(model, optimizer, game, args, Node, mcts)
 profiler = cProfile.Profile()
 
-#state_dict_2 = torch.load("model_4.pt")
-#model.load_state_dict(state_dict_2)
-def run(test):
-    alphazero = ChessTrain.AlphaZeroParallel(model, optimizer, game, args, Node, mcts)
-    alphazero.learn(test)
 
 if __name__ == '__main__':
-    #profiler.enable()
+    game.play(state, player)
 
-    alphazero = ChessTrain.AlphaZeroParallel(model, optimizer, game, args, Node, mcts)
-    alphazero.learn(test=False)
-    #alphazero.learn()
-    #profiler.disable()
-    #profiler.dump_stats('output.prof.Parallel')
-    #stats = pstats.Stats('output.prof.2')
-    #stats.strip_dirs().sort_stats('cumtime').print_stats(100)  # Show top 10 functions by time
 
-# Load and view stats
 

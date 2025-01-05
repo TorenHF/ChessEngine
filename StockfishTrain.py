@@ -29,21 +29,24 @@ class StockfishTrain:
             flipped_board = self.game.changePerspective(board, player)
             neutral_state = self.game.get_encoded_state(flipped_board)
             copy_board = board.copy()
+            eval = self.get_stockfish_eval(flipped_board)
+            move_probs = self.get_stockfish_move_probs(flipped_board)
 
 
-            memory.append((neutral_state, copy_board))
+            memory.append((neutral_state, copy_board, eval, move_probs))
 
             if hMove_counter % 4 == 0 or hMove_counter % 3 == 0:
                 legal_moves = self.game.get_binary_moves(flipped_board)
                 move_probs = legal_moves / np.sum(legal_moves)
                 action = np.random.choice(len(self.game.all_moves), p=move_probs)
                 move = self.game.all_moves[action]
-            else:
-                self.stockfish.set_fen_position(flipped_board.fen())
-                move = self.stockfish.get_best_move_time(300)
-                move = chess.Move.from_uci(move)
 
+            else:
+                for i, action in enumerate(move_probs):
+                    if action == 1:
+                        move = self.game.all_moves[i]
             move = self.game.flip_move(move, player)
+
             board.push(move)
 
             hMove_counter += 1
@@ -52,13 +55,11 @@ class StockfishTrain:
 
 
             if is_terminal:
-                for hist_neutral_state, hist_board in memory:
-                    eval = self.get_stockfish_eval(hist_board)
-                    value_target = self.scale_tanh(eval)
-                    move_probs = self.get_stockfish_move_probs(hist_board)
+                for hist_neutral_state, hist_board, hist_eval, hist_move_probs in memory:
+                    value_target = self.scale_tanh(hist_eval)
                     return_memory.append((
-                        hist_neutral_state,
-                        move_probs,
+                        hist_neutral_state.cpu().detach().numpy(),
+                        hist_move_probs,
                         value_target
                     ))
         return return_memory, hMove_counter
@@ -89,29 +90,22 @@ class StockfishTrain:
         return 1 / (1 + math.exp(-cp / k))
     def get_stockfish_eval(self, state):
         self.stockfish.set_fen_position(state.fen())
-        stockfish.set_depth(5)
+        stockfish.set_depth(15)
         evaluation = stockfish.get_evaluation()
         if evaluation["type"] == "mate":
-            return 1200
+            return 1200 if evaluation["value"] > 0 else -1200
         else:
             return evaluation["value"]
 
 
     def get_stockfish_move_probs(self, state):
-        valid_moves = self.game.get_binary_moves(state)
         move_probs = np.zeros(self.game.actionSize)
-        for i, move in enumerate(valid_moves):
-            if move !=0:
-                new_state = state.copy()
-                new_state.push(self.game.all_moves[i])
+        self.stockfish.set_fen_position(state.fen())
+        move = self.stockfish.get_best_move_time(600)
+        move = chess.Move.from_uci(move)
+        action = self.game.all_moves.index(move)
+        move_probs[action] = 1
 
-                move_eval = self.get_stockfish_eval(new_state)
-                move_prob = self.scale_sigmoid(move_eval)
-                move_probs[move] = move_prob
-            else:
-                move_probs[move] = 0
-
-        move_probs /= np.sum(move_probs)
         return move_probs
 
     def train_engine(self, memory):
@@ -121,7 +115,7 @@ class StockfishTrain:
             if not sample:
                 print(f"Empty sample at batch index {batchIdx}, skipping...")
                 continue
-            print(f"Sample at batch index {batchIdx}: {sample}")
+
             state, policy_targets, value_targets = zip(*sample)
 
             state, policy_targets, value_targets = np.array(state), np.array(policy_targets), np.array(
@@ -143,9 +137,14 @@ class StockfishTrain:
             # Total loss
             loss = policy_loss + value_loss
 
-            with open('output.loss_data_stockfish_training', 'a') as f:
-                f.write('\n' + str(loss))
+            loss_np = loss.cpu().detach().numpy()
+            value_loss_np = value_loss.cpu().detach().numpy()
 
+            with open('output.value-loss_data.stockfish_training', 'a') as f:
+                f.write('\n' + str(value_loss_np))
+
+            with open('output.loss_data.stockfish_training', 'a') as f:
+                f.write('\n' + str(loss_np))
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
@@ -161,6 +160,8 @@ class StockfishTrain:
                 success, returned_memory, num_moves = play_wrapper(selfPlay_iteration)
                 if success:
                     memory.extend(returned_memory)
+                    with open('output.num_moves.stockfish', 'a') as f:
+                        f.write('\n' + str(num_moves))
 
 
             self.model.train()
@@ -168,8 +169,8 @@ class StockfishTrain:
                 self.train_engine(memory)
 
             # Save model and optimizer state
-            torch.save(self.model.state_dict(), f"model_{iteration}_stockfish_training.pt")
-            torch.save(self.optimizer.state_dict(), f"optimizer_{iteration}_stockfish_training.pt")
+            torch.save(self.model.state_dict(), f"model_{iteration+3}_stockfish_training.pt")
+            torch.save(self.optimizer.state_dict(), f"optimizer_{iteration+3}_stockfish_training.pt")
 
 def play_wrapper(i):
     try:
@@ -182,28 +183,30 @@ def play_wrapper(i):
 args = {
     'C': 2,
     'num_searches': 400,
-    'num_iterations' : 10,
-    'num_selfPlay_iterations' : 100,
+    'num_iterations' : 40,
+    'num_selfPlay_iterations' : 800,
     'num_parallel_games' : 1,
-    'num_epochs' : 8,
-    'batch_size' : 32,
-    'temperature' : 1.25,
-    'dirichlet_epsilon' : 0.75,
-    'dirichlet_alpha' : 0.6,
-    'num_engine_games' : 100,
-    'num_max_parallel_batches' : 12,
-    'num_max_searches' : 500,
+    'num_epochs' : 4,
+    'batch_size' : 128,
+    'temperature' : 2,
     'tanh_k' : 600,
     'sigmoid_k' : 400
 }
 
-device = torch.device("cpu")
+device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 game = Chess.game
-stockfish_path = r"C:\Users\toren\Downloads\stockfish-windows-x86-64-sse41-popcnt\stockfish\stockfish-windows-x86-64-sse41-popcnt"
-model = Chess.ResNet(game, 8, 64, device)
+stockfish_path = "/opt/homebrew/bin/stockfish"
+model = Chess.ResNet(game, 12, 128, device)
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=0.0001)
 board = chess.Board()
-stockfish = Stockfish(stockfish_path)
-
+stockfish = Stockfish(stockfish_path, parameters={
+    "Threads" : 10,
+    "Hash" : 512
+})
+state_dict = torch.load('model_4_stockfish_training.pt')
+new_optimizer_state_dict = torch.load('optimizer_4_stockfish_training.pt')
+model.load_state_dict(state_dict)
+optimizer.load_state_dict(new_optimizer_state_dict)
 stockfish_train = StockfishTrain(game, model, stockfish, optimizer, args)
+
 stockfish_train.engine_learn()

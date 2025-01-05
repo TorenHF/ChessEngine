@@ -20,55 +20,9 @@ class AlphaZeroParallel:
         self.state = chess.Board()
         self.root = None
 
-    def selfPlay(self):
-        return_memory = []
-        memory = []
-        player = 1
-        state = chess.Board()
-        num_moves = 0
-        is_terminal = False
-
-
-        while not is_terminal:
-            num_moves += 1
-
-            neutral_state = self.game.changePerspective(state, player)
-            action_probs, root = self.mcts.search(neutral_state)
-
-
-            temperature_action_probs = action_probs ** (1 / self.args['temperature'])
-            temperature_action_probs /= np.sum(temperature_action_probs)  # Ensure it sums to 1
-
-            action = np.random.choice(len(temperature_action_probs), p=temperature_action_probs)
-            move = self.game.all_moves[action]
-            move = self.game.flip_move(move, player)
-            state.push(move)
-
-            value, is_terminal = self.game.get_value_and_terminate(state, num_moves)
-
-            # Save the π (action probabilities) and the Q value of the root node
-            q_value = root.value_sum / root.visit_count  # Q-value for the root node
-            memory.append((neutral_state, action_probs, player, q_value))  # Store q_value
-
-            if is_terminal:
-                #print(num_moves)
-                for hist_neutral_state, hist_action_probs, hist_player, hist_q_value in memory:
-                    hist_outcome = value if hist_player == player else self.game.getOpponentValue(value)
-                    return_memory.append((
-                        self.game.get_encoded_state(hist_neutral_state).cpu(),
-                        hist_action_probs,
-                        hist_outcome,  # Use the final outcome as z
-                        hist_q_value  # Save q for training
-                    ))
-
-
-
-            player = self.game.getOpponent(player)
-
-        return return_memory
-
-    # Here there is a possibility to add q in training
     def train(self, memory):
+        self.device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+        self.model.to(self.device)
 
         random.shuffle(memory)
 
@@ -87,6 +41,7 @@ class AlphaZeroParallel:
             state = torch.tensor(state, dtype=torch.float32, device=self.model.device)
             policy_targets = torch.tensor(policy_targets, dtype=torch.float32, device=self.model.device)
             avg_qz = torch.tensor(avg_qz, dtype=torch.float32, device=self.model.device)
+            value_targets_tensor = torch.tensor(value_targets, dtype=torch.float32, device=self.model.device)
 
             out_policy, out_value = self.model(state)
 
@@ -97,21 +52,75 @@ class AlphaZeroParallel:
             value_loss = F.mse_loss(out_value, avg_qz)
 
             # Total loss
-            loss = policy_loss + value_loss
+            loss = policy_loss + 2*value_loss
+            loss_np = loss.cpu().detach().numpy()
+            value_loss_np = value_loss.cpu().detach().numpy()
 
-            with open('output.loss_data', 'a') as f:
-                f.write('\n' + str(loss))
+            with open('output.value-loss_data.complete_restart', 'a') as f:
+                f.write('\n' + str(value_loss_np))
+
+            with open('output.loss_data.complete_restart', 'a') as f:
+                f.write('\n' + str(loss_np))
+
+
+
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
+
+    def train_on_wins(self, memory):
+        self.device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+        self.model.to(self.device)
+
+        random.shuffle(memory)
+
+        for batchIdx in range(0, len(memory), self.args['wins_batch_size']):
+            sample = memory[batchIdx:min(len(memory) - 1, batchIdx + self.args['wins_batch_size'])]
+
+            state, policy_targets, value_targets, q_values = zip(*sample)
+
+            q_values = np.array(q_values).reshape(-1, 1)  # Reshape q_values
+
+            state, policy_targets, value_targets = np.array(state), np.array(policy_targets), np.array(
+                value_targets).reshape(-1, 1)
+
+            avg_qz = (q_values + value_targets) / 2.0
+
+            state = torch.tensor(state, dtype=torch.float32, device=self.model.device)
+            policy_targets = torch.tensor(policy_targets, dtype=torch.float32, device=self.model.device)
+            avg_qz = torch.tensor(avg_qz, dtype=torch.float32, device=self.model.device)
+            value_targets_tensor = torch.tensor(value_targets, dtype=torch.float32, device=self.model.device)
+
+            out_policy, out_value = self.model(state)
+
+            # Policy loss remains the same
+            policy_loss = F.cross_entropy(out_policy, policy_targets)
+
+            # Value loss: train on the average of q and z
+            value_loss = F.mse_loss(out_value, avg_qz)
+
+            # Total loss
+            loss = policy_loss + 2*value_loss
+            loss_np = loss.cpu().detach().numpy()
+            value_loss_np = value_loss.cpu().detach().numpy()
+
+            with open('output.value-loss_data.onlyWins.complete_restart', 'a') as f:
+                f.write('\n' + str(value_loss_np))
+
+            with open('output.loss_data.onlyWins.complete_restart', 'a') as f:
+                f.write('\n' + str(loss_np))
 
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
 
 
-
     def learn(self, test):
         # Move the model to CPU to make it picklable
         mp.set_start_method('spawn', force=True)
         # Move the model to CPU memory so it can be shared (pickled) with worker processes
+        self.device = torch.device("cpu")
+        self.model.to(self.device)
 
 
         max_games = self.args['num_max_parallel_batches'] * self.args['num_parallel_games'] + self.args['num_parallel_games']
@@ -122,9 +131,10 @@ class AlphaZeroParallel:
             for iteration in range(self.args['num_iterations']):
                 self.model.eval()
                 memory = []
+                win_memory = []
 
-                self.args['num_searches'] =  round(float(start_parameter_mcts * np.exp(-iteration * 0.5) + self.args['num_max_searches']))
-                self.args['num_selfPlay_iterations'] = round(float(start_parameter_spg * np.exp(-iteration * 0.5) + max_games))
+                #self.args['num_searches'] =  round(float(start_parameter_mcts * np.exp(-(iteration + 14) * 0.5) + self.args['num_max_searches']))
+                #self.args['num_selfPlay_iterations'] = round(float(start_parameter_spg * np.exp(-(iteration + 19) * 0.5) + max_games))
 
 
                 selfPlay_partial = partial(selfPlay_wrapper, self.mcts, self.game, self.args, self.model,
@@ -141,12 +151,16 @@ class AlphaZeroParallel:
                     results = pool.map(selfPlay_partial, range(self.args['num_parallel_games']))
 
                     # Combine all game memories
-                    for idx, (success, result, num_moves) in enumerate(results):
+                    for idx, (success, result, num_moves, winner) in enumerate(results):
                         if success:
                             game_memory = result
                             memory.extend(game_memory)
-                            with open('output.num_moves.data', 'a') as f:
+                            if winner !=0:
+                                win_memory.extend(game_memory)
+                            with open('output.num_moves.data.complete_restart', 'a') as f:
                                 f.write('\n' + str(num_moves))
+                            with open('output.results.complete_restart', 'a') as f:
+                                f.write('\n' + str(winner))
 
                     if test:
                         with open('start_logs.data', 'w') as outfile:
@@ -156,175 +170,20 @@ class AlphaZeroParallel:
                                     outfile.write(infile.read())
                         cleanup_logs(self.args['num_parallel_games'])
 
-
-
-
-
                 # Training phase
                 self.model.train()
                 for epoch in range(self.args['num_epochs']):
                     self.train(memory)
+                for win_epoch in range(self.args['num_win_epochs']):
+                    self.train_on_wins(win_memory)
 
                 # After training, move the model back to CPU for pickling in next iteration
                 self.model.to('cpu')
 
                 # Save model and optimizer state
-                torch.save(self.model.state_dict(), f"model_{iteration}.pt")
-                torch.save(self.optimizer.state_dict(), f"optimizer_{iteration}.pt")
+                torch.save(self.model.state_dict(), f"model_{iteration+42}_complete_restart.pt")
+                torch.save(self.optimizer.state_dict(), f"optimizer_{iteration+42}_complete_restart.pt")
 
-
-
-
-
-
-
-
-
-
-
-
-    def learn_old(self):
-            mp.set_start_method('spawn', force=True)
-            for iteration in range(self.args['num_iterations']):
-                memory = []
-
-
-                self.model.eval()
-                for selfPlay_iteration in range(self.args['num_selfPlay_iterations'] // self.args['num_parallel_games']):
-                    queue = mp.Queue()
-                    processes = []
-
-                    for i in range(self.args['num_parallel_games']):
-                        p = mp.Process(target=self.selfPlay_wrapper, args=(queue, i))
-                        processes.append(p)
-                        p.start()
-
-                    # Gather results
-                    game_memory = [queue.get() for _ in range(self.args['num_parallel_games'])]
-                    memory.extend(game_memory)
-
-                    for p in processes:
-                        p.join()
-
-                    print(f"iteration: {iteration}, game: {selfPlay_iteration}")
-                print("complete")
-
-
-                self.model.train()
-                for epoch in range(self.args['num_epochs']):
-                    self.train(memory)
-
-                torch.save(self.model.state_dict(), f"model_{iteration}.pt" )
-                torch.save(self.optimizer.state_dict(), f"optimizer_{iteration}.pt")
-
-    def selfPlay_wrapper_old(self, model_state_dict, i):
-        # Load the model state dictionary for this worker
-        self.model.load_state_dict(model_state_dict)
-        # Move model to the device (GPU or CPU) as needed
-        self.model.to("mps" if torch.backends.mps.is_available() else "cpu")
-
-        # Perform a self-play game and return its memory
-        return self.selfPlay()
-
-    def selfPlay_wrapper_1(self, model_state_dict, idx):
-        try:
-            # Initialize device
-            # Load the model state dictionary for this worker
-            self.model.load_state_dict(model_state_dict)
-
-            # Move model to the device (GPU or CPU) as needed
-            self.model.to("mps" if torch.backends.mps.is_available() else "cpu")
-            self.model.eval()
-
-
-            result = self.selfPlay()
-
-            return (True, result)  # Return the result to the main process
-
-        except Exception as e:
-            print(f"Worker {idx}: Exception occurred: {e}")
-            return (False, e)# Re-raise exception to be caught in the main process
-
-
-class SPG:
-    def __init__(self, game):
-        self.state = chess.Board()
-        self.game = game
-        self.memory = []
-        self.root = None
-        self.node = None
-class MCTSParallel:
-    def __init__(self, game, args, model, node):
-        self.game = game
-        self.args = args
-        self.model = model
-        self.node = node
-
-    @torch.no_grad()
-    def search(self, states, spGames, player):
-        policy, _ = self.model(
-            self.game.get_encoded_state_parallel(states).clone().detach().to(self.model.device)
-        )
-        policy = torch.softmax(policy, axis=1).cpu().numpy()
-        policy = ((1-self.args['dirichlet_epsilon']) * policy + self.args['dirichlet_epsilon']
-                  * np.random.dirichlet([self.args['dirichlet_alpha']]* self.game.actionSize, size=policy.shape[0]))
-
-        for i, spg in enumerate(spGames):
-            spg_policy = policy[i]
-            valid_moves = self.game.get_binary_moves(states[i])
-
-
-            spg_policy *= valid_moves
-            spg_policy /= np.sum(spg_policy)
-
-            spg.root = self.node(self.game, self.args, spg.state, visit_count=1)
-            spg.root.state = states[i]
-
-
-            spg.root.expand(spg_policy, player)
-
-        for search in range(self.args['num_searches']):
-            for spg in spGames:
-                spg.node = None
-                node = spg.root
-
-                while node.is_fully_expanded():
-                    node = node.select()
-
-                value, is_terminal = self.game.get_value_and_terminate(node.state, 1)
-                value = self.game.getOpponentValue(value)
-
-                if is_terminal:
-                    node.backpropagate(value)
-
-
-                else:
-                    spg.node = node
-
-
-                expandable_spGames = [mappingIdx for mappingIdx in range(len(spGames)) if spGames[mappingIdx].node is not None]
-
-                if len(expandable_spGames) >0:
-                    states = np.stack([spGames[mappingIdx].node.state for mappingIdx in expandable_spGames])
-
-                    policy, value = self.model(
-                        self.game.get_encoded_state_parallel(states)
-                    )
-                    policy = torch.softmax(policy, axis=1).cpu().numpy()
-                    value = value.cpu().numpy()
-
-                for i, mappingIdx in enumerate(expandable_spGames):
-                    spg_policy, spg_value = policy[i], value[i]
-                    node = spGames[mappingIdx].node
-
-
-                    valid_moves = self.game.get_binary_moves(node.state)
-
-                    spg_policy *= valid_moves
-                    spg_policy /= np.sum(spg_policy)
-
-                    node.expand(spg_policy, player)
-                    node.backpropagate(spg_value)
 
 def cleanup_logs(num_workers):
     for i in range(num_workers):
@@ -334,11 +193,13 @@ def cleanup_logs(num_workers):
             os.remove(log_filename_1)
         if os.path.exists(log_filename_2):
             os.remove(log_filename_2)
+
+
 def selfPlay_wrapper(mcts, game, args, model, model_state_dict, test, i):
     try:
 
         # Initialize device
-        device = torch.device("cpu")
+        device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
         if test:
             with open(f"worker_{i}_start_log.data", 'a') as f:
                 f.write(f'\n started at {time.localtime()}')
@@ -355,21 +216,22 @@ def selfPlay_wrapper(mcts, game, args, model, model_state_dict, test, i):
         model.eval()
 
         #mcts = MCTS(args, None, 1, game, model)
-        result, num_moves = selfPlay(game, mcts, args, i, test)
+        result, num_moves, winner = selfPlay(game, mcts, args, i, test)
         if test:
             with open(f"worker_{i}_move_log.data", 'a') as f:
                 f.write(f'\n finished at {time.localtime()}')
 
-        return (True, result, num_moves)  # Return the result to the main process
+        return (True, result, num_moves, winner)  # Return the result to the main process
 
     except Exception as e:
         print(f"Worker {i}: Exception occurred: {e}")
-        return (False, e, 0)  # Re-raise exception to be caught in the main process
+        return (False, e, 0, 0)  # Re-raise exception to be caught in the main process
 
 def selfPlay(game, mcts, args, i, test):
     return_memory = []
     memory = []
     player = 1
+    value = 0
     state = chess.Board()
     num_moves = 0
     is_terminal = False
@@ -409,5 +271,125 @@ def selfPlay(game, mcts, args, i, test):
                 ))
 
         player = game.getOpponent(player)
+    winner = value if player == 1 else game.getOpponent(value)
+    return return_memory, num_moves, winner
 
-    return return_memory, num_moves
+def generate_random_chess_position(max_attempts=1000):
+    """
+    Generates a random, non-terminal chess position using the python-chess library.
+
+    Args:
+        max_attempts (int): Maximum number of attempts to generate a non-terminal position.
+
+    Returns:
+        chess.Board: A randomly generated, non-terminal chess board position.
+
+    Raises:
+        ValueError: If a non-terminal position could not be generated within max_attempts.
+    """
+    piece_types = [chess.PAWN, chess.KNIGHT, chess.BISHOP, chess.ROOK, chess.QUEEN]
+    max_pieces = {
+        chess.PAWN: 8,
+        chess.KNIGHT: 10,  # Including promotions
+        chess.BISHOP: 10,
+        chess.ROOK: 10,
+        chess.QUEEN: 9,
+    }
+
+    for attempt in range(max_attempts):
+        board = chess.Board(None)  # Start with an empty board
+
+        # Helper function to get empty squares
+        def get_empty_squares(for_pawn=False):
+            empty = [sq for sq in chess.SQUARES if board.piece_at(sq) is None]
+            if for_pawn:
+                # Exclude first and eighth ranks for pawns
+                empty = [sq for sq in empty if chess.square_rank(sq) not in [0, 7]]
+            return empty
+
+        # Helper function to randomly place a single king
+        def place_king(color):
+            empty = get_empty_squares()
+            king_square = random.choice(empty)
+            board.set_piece_at(king_square, chess.Piece(chess.KING, color))
+
+        # Place white and black kings
+        place_king(chess.WHITE)
+        place_king(chess.BLACK)
+
+        # Function to randomly place pieces for a given color
+        def place_pieces(color):
+            remaining_pieces = {}
+            for pt in piece_types:
+                remaining_pieces[pt] = random.randint(0, max_pieces[pt])
+
+            # Place pieces
+            for piece_type, count in remaining_pieces.items():
+                for _ in range(count):
+                    if piece_type == chess.PAWN:
+                        empty = get_empty_squares(for_pawn=True)
+                    else:
+                        empty = get_empty_squares()
+                    if not empty:
+                        break  # No more space to place pieces
+                    square = random.choice(empty)
+                    board.set_piece_at(square, chess.Piece(piece_type, color))
+
+        # Place pieces for both colors
+        place_pieces(chess.WHITE)
+        place_pieces(chess.BLACK)
+
+        # Randomly set side to move
+        board.turn = random.choice([chess.WHITE, chess.BLACK])
+
+        # Randomly set castling rights
+        castling_rights = 0
+        # Castling rights are represented by constants in python-chess
+        # Check if kings and rooks are on their starting squares before granting rights
+
+        # White kingside
+        if (board.piece_at(chess.E1) == chess.Piece(chess.KING, chess.WHITE) and
+            board.piece_at(chess.H1) == chess.Piece(chess.ROOK, chess.WHITE)):
+            if random.choice([True, False]):
+                castling_rights |= chess.BB_H1
+        # White queenside
+        if (board.piece_at(chess.E1) == chess.Piece(chess.KING, chess.WHITE) and
+            board.piece_at(chess.A1) == chess.Piece(chess.ROOK, chess.WHITE)):
+            if random.choice([True, False]):
+                castling_rights |= chess.BB_A1
+        # Black kingside
+        if (board.piece_at(chess.E8) == chess.Piece(chess.KING, chess.BLACK) and
+            board.piece_at(chess.H8) == chess.Piece(chess.ROOK, chess.BLACK)):
+            if random.choice([True, False]):
+                castling_rights |= chess.BB_H8
+        # Black queenside
+        if (board.piece_at(chess.E8) == chess.Piece(chess.KING, chess.BLACK) and
+            board.piece_at(chess.A8) == chess.Piece(chess.ROOK, chess.BLACK)):
+            if random.choice([True, False]):
+                castling_rights |= chess.BB_A8
+
+        board.castling_rights = castling_rights
+
+        # Randomly set en passant square
+        if random.choice([True, False]):
+            # Choose a file from a to h and a rank from 3 to 6 (0-indexed: 2 to 5)
+            ep_file = random.choice(range(8))
+            ep_rank = random.choice([2, 3, 4, 5])
+            ep_square = chess.square(ep_file, ep_rank)
+            # Optionally, ensure that a pawn is in position to perform en passant
+            # For simplicity, we'll skip this validation
+            board.ep_square = ep_square
+        else:
+            board.ep_square = None
+
+        # Set halfmove clock and fullmove number randomly
+        board.halfmove_clock = random.randint(0, 100)
+        board.fullmove_number = random.randint(1, 200)
+
+        # Check if the position is terminal
+        if not board.is_game_over():
+            return board
+        # Else, continue to the next attempt
+
+    # If no non-terminal position was found within max_attempts
+    raise ValueError(f"Failed to generate a non-terminal position in {max_attempts} attempts.")
