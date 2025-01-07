@@ -4,60 +4,53 @@ import torch
 import math
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.cpu import is_available
-
 import ChessTrain
 import cProfile
-import time
+
+"""
+    This code is for the engine in the paper: Creating an Engine that teaches Itself to Play Chess, by Toren Hewitt-Fry, 2025.
+    The code in this file was partially created using AI sources.
+    All functions in this code, which were made using assistance from AI, cite the prompt number, which corresponds to a prompt in my Paper in Section 11.1.
+    All functions in this code, which correspond to certain Sections within my Paper, reference those Sections.
+    """
 
 
-
-
-
-
-
+# This class is for the functions that make my self-play and MCTS methods work.
 class Game:
     def __init__(self, device):
         self.columnCount = 8
         self.rowCount = 8
         self.device = device
-        self.swapDictionary = {
-            'R': 'r', 'N': 'n', 'B': 'b', 'Q': 'q', 'K': 'k', 'P': 'p',
-            'r': 'R', 'n': 'N', 'b': 'B', 'q': 'Q', 'k': 'K', 'p': 'P',
-            '.': '.', '1':'1', '2':'2', '3':'3', '4':'4', '5':'5', '6':'6', '7':'7', '8':'8'
-        }
-        self.swap_pieces = {
-                'p': 'P', 'r': 'R', 'n': 'N', 'b': 'B', 'q': 'Q', 'k': 'K',
-                'P': 'p', 'R': 'r', 'N': 'n', 'B': 'b', 'Q': 'q', 'K': 'k'
-            }
+        self.swapDictionary = {'R': 'r', 'N': 'n', 'B': 'b', 'Q': 'q', 'K': 'k', 'P': 'p', 'r': 'R', 'n': 'N', 'b': 'B',
+            'q': 'Q', 'k': 'K', 'p': 'P', '.': '.', '1': '1', '2': '2', '3': '3', '4': '4', '5': '5', '6': '6',
+            '7': '7', '8': '8'}
+        self.swap_pieces = {'p': 'P', 'r': 'R', 'n': 'N', 'b': 'B', 'q': 'Q', 'k': 'K', 'P': 'p', 'R': 'r', 'N': 'n',
+            'B': 'b', 'Q': 'q', 'K': 'k'}
         self.swapDictionary_pieces = {}
         self.all_moves = self.getAllMoves()
         self.actionSize = len(self.all_moves)
 
+    # This function corresponds to the function in Section 8.2.1
+    # This function was written / optimized with the help of AI and corresponds to AI prompt: 11, 12
     def changePerspective(self, state, player):
-
         if player == -1:
             fen = state.fen()
             parts = fen.split(' ')
             board_rows = parts[0].split('/')
 
             flipped_fen = '/'.join(
-                ''.join(self.swap_pieces.get(char, char) for char in row)
-                for row in board_rows[::-1]
-            )
-
+                ''.join(self.swap_pieces.get(char, char) for char in row) for row in board_rows[::-1])
 
             parts[0] = flipped_fen
 
-
             parts[1] = 'b' if parts[1] == 'w' else 'w'
-
 
             flipped_fen = ' '.join(parts)
             state = chess.Board(flipped_fen)
 
         return state
 
+    # This function is no longer used, because of the implementation of multiprocessing, but is referenced in Section 8.4 and Figure 29
     def changePerspective_parallel(self, states, player):
         if player == -1:
             for i, state in enumerate(states):
@@ -65,21 +58,18 @@ class Game:
                 states[i] = flipped_state
         return states
 
+    # This function corresponds to the function in Section 8.2.2
     def flip_move(self, move, player):
         if player == -1:
             flipped_from = chess.square_mirror(move.from_square)
             flipped_to = chess.square_mirror(move.to_square)
-
-            # Create a new move with the flipped squares
             flipped_move = chess.Move(flipped_from, flipped_to)
 
-            # Preserve the promotion piece, if any (e.g., pawn promotion to queen)
             if move.promotion:
                 flipped_move.promotion = move.promotion
         else:
             flipped_move = move
         return flipped_move
-
 
     def getOpponent(self, player):
         player *= -1
@@ -102,7 +92,7 @@ class Game:
         if state.is_checkmate():
             return 1, True
         elif state.is_stalemate() or state.is_insufficient_material() or state.is_repetition(3):
-            return -0.05, True
+            return -0.05, True #slightly discourage the MCTS from playing draws
         else:
             return 0, False
 
@@ -134,9 +124,10 @@ class Game:
         if file_diff == 1 and rank_diff == 1:
             return False  # valid pawn capture diagonally
 
-
         return True
 
+
+    # This function was written / optimized with the help of AI and corresponds to AI prompt: 8, 13
     def piece_to_vector(self, piece):
         if piece is None:
             return np.array([0, 0, 0, 0, 0, 0], dtype=np.float32)
@@ -165,27 +156,8 @@ class Game:
         elif piece == chess.Piece(chess.QUEEN, chess.BLACK):
             return np.array([0, 0, 0, 0, -1, 0], dtype=np.float32)
 
-
-    def getAllMoves(self):
-        moves = []
-        for source_square in chess.SQUARES:
-            for target_square in chess.SQUARES:
-                move = chess.Move(source_square, target_square)
-                if not self.is_move_never_possible(move):
-                    moves.append(move)
-        columns = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h' ]
-        for column in range(8):
-            moves.append(chess.Move.from_uci(f'{columns[column]}7{columns[column]}8q'))
-            moves.append(chess.Move.from_uci(f'{columns[column]}7{columns[column]}8n'))
-        return moves
-
-    def get_binary_moves(self, board):
-        board.turn = chess.WHITE
-        binaryMoves = [1 if board.is_legal(move) else 0 for move in self.all_moves]
-        return binaryMoves
-
-
-
+    # This function corresponds to the function in Section 8.2.3
+    # This function was written / optimized with the help of AI and corresponds to AI prompt: 8, 13
     def get_encoded_state(self, board):
         encoded_state_np = np.zeros((8, 8, 6), dtype=np.float32)
 
@@ -197,6 +169,7 @@ class Game:
         encoded_state = torch.tensor(encoded_state_np, dtype=torch.float32).to(self.device)
         return encoded_state
 
+    # This function is no longer used, because of the implementation of multiprocessing, but is referenced in Section 8.4 and Figure 29
     def get_encoded_state_parallel(self, states):
         encoded_states_np = np.zeros((int(len(states)), 8, 8, 6), dtype=np.float32)
         for idx, state in enumerate(states):
@@ -206,32 +179,100 @@ class Game:
                     encoded_state_np = self.piece_to_vector(piece)
                     encoded_states_np[idx, row, column] = encoded_state_np
 
-
         encoded_states = torch.tensor(encoded_states_np, dtype=torch.float32).to(self.device)
         return encoded_states
 
-    def play(self, state, player):
-        while True:
-            print(state)
-            if player == 1:
-                print(state.legal_moves)
-                action = str(input(f"Player {player}, enter your move: "))
+    def getAllMoves(self):
+        moves = []
+        for source_square in chess.SQUARES:
+            for target_square in chess.SQUARES:
+                move = chess.Move(source_square, target_square)
+                if not self.is_move_never_possible(move):
+                    moves.append(move)
+        columns = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']
+        for column in range(8):
+            moves.append(chess.Move.from_uci(f'{columns[column]}7{columns[column]}8q'))
+            moves.append(chess.Move.from_uci(f'{columns[column]}7{columns[column]}8n'))
+        return moves
 
-                state.push_san(action)
+    # This function corresponds to the function in Section 8.2.4.1
+    # This function was written / optimized with the help of AI and corresponds to AI prompt: 9, 10,
+    def get_binary_moves(self, board):
+        board.turn = chess.WHITE
+        binaryMoves = [1 if board.is_legal(move) else 0 for move in self.all_moves]
+        return binaryMoves
+
+    def tryMove(self, format):
+        if format == 0:
+            print("Legal moves: ", self.state.legal_moves)
+        else:
+            print("Legal moves: ", end="")
+            for move in self.state.legal_moves:
+                print(move.uci(), end=", ")
+            print()
+
+        move = str(input(f"Player {player}, enter your move: "))
+
+        try:
+            if format == 0:
+                self.state.push_san(move)
             else:
-                neutral_state = self.changePerspective(state, player)
+                self.state.push_uci(move)
+        except:
+            print("Invalid move")
+            self.tryMove(format)
+
+
+
+    def play(self, state, player):
+        print("This is an explanation for how to input the moves for the chess game")
+        print("The board is splitt into 8 rows and 8 columns")
+        print("Each column is represented by a letter from a to h")
+        print("Each row is represented by a number from 1 to 8")
+        print("The bottom left square is a1, the top right square is h8")
+        success = False
+        while not success:
+            type = int(input("Type 1 for uci, type 0 for san format for the playing of moves: "))
+            if type == 1:
+                print("To play a move, you have to list the starting square and ending square of the piece playing the move")
+                print("For pawn promotions, the promoted to piece needs to be added onto the end of the move with:")
+                print("Queen = q, Bishop = b, Rook = r, Knight = n")
+                print("Examples of moves are: a2a3, b6c5, h7h8q (pawn promotion to a queen)")
+                format = 1
+                success = True
+            if type == 0:
+                print("To play a move, you have to list the starting piece with its corresponding letter, and the end square of the piece playing the move")
+                print("The pieces are: King = K, Queen = Q, Bishop = B, Rook = R, Knight = N, and for pawn moves no piece is listed")
+                print("For special moves such as Captures or Checks, special symbols are required:")
+                print("Captures = x, Checks = +, Checkmate = #, Pawn promotion = =(Piece)")
+                print("The x for captures comes between the piece type and the end sqaure, the rest of the additional information comes at the end of the move")
+                print("Examples of moves are: Rh3, Nxb5, Qh2+, e8=R+ (pawn promotion to a rook with check)")
+                format = 0
+                success = True
+            else:
+                print("Invalid option")
+
+        print("Good Luck!")
+        print("Game is Starting:")
+        while True:
+            self.state = state
+            print(self.state.unicode())
+            if player == 1:
+                self.tryMove(format)
+
+            else:
+                neutral_state = self.changePerspective(self.state, player)
                 mcts_probs, _ = mcts.search(neutral_state)
                 action = np.argmax(mcts_probs)
                 move = self.all_moves[action]
                 move = self.flip_move(move, player)
                 state.push(move)
-                print(move)
+                print(f"Engine Move: {move}")
 
-
-            value, is_terminal = self.get_value_and_terminate(state, 1)
+            value, is_terminal = self.get_value_and_terminate(self.state, 1)
 
             if is_terminal:
-                print(state)
+                print(self.state.unicode())
                 if value == 1:
                     print(f"Player {player} won!")
                 else:
@@ -240,10 +281,7 @@ class Game:
 
             player = self.getOpponent(player)
 
-
-
-
-
+# This class is for the Nodes in the MCTS algorithm
 class Node:
     def __init__(self, game, args, state, parent=None, action_taken=None, action_index=None, prior=0, visit_count=0):
         self.game = game
@@ -258,11 +296,9 @@ class Node:
         self.visit_count = visit_count
         self.value_sum = 0
 
-
-
     def is_fully_expanded(self):
         return len(self.children) > 0
-
+    # This function corresponds to the method described in Sections 6.1.1.1 and 6.1.2
     def select(self):
         best_child = None
         best_ucb = -np.inf
@@ -274,6 +310,7 @@ class Node:
                 best_ucb = ucb
         return best_child
 
+    # This function corresponds to the method described in Sections 6.1.1.1 and 6.1.2
     def get_ucb(self, child):
         if child.visit_count == 0:
             q_value = 0
@@ -281,6 +318,8 @@ class Node:
             q_value = 1 - ((child.value_sum / child.visit_count) + 1) / 2
         return q_value + self.args['C'] * (math.sqrt(self.visit_count) / (1 + child.visit_count)) * child.prior
 
+    # This function corresponds to the method described in Sections 6.1.1.2 and 6.1.2
+    # This function is also briefly mentioned in Section 8.4 and Figure 29
     def expand(self, policy, player):
         swapped_state = self.game.changePerspective(self.state, player=-1)
         for action, prob in enumerate(policy):
@@ -290,12 +329,10 @@ class Node:
                 flipped_move = self.game.flip_move(move, player=-1)
                 child_state.push(flipped_move)
 
-
-
                 child = Node(self.game, self.args, child_state, self, move, action, prob)
                 self.children.append(child)
         return child
-
+    # This function is not used for this engine, but corresponds to the method described in Section 6.1.1.2
     def simulate(self):
         value, is_terminal = self.game.get_value_and_terminate(self.state, self.action_taken)
         value = self.game.getOpponentValue(value)
@@ -315,6 +352,7 @@ class Node:
                 return value
             rollout_player = self.game.getOpponent(rollout_player)
 
+    # This function corresponds to the method described in Sections 6.1.1.3 and 6.1.2
     def backpropagate(self, value):
         self.value_sum += value
         self.visit_count += 1
@@ -323,6 +361,7 @@ class Node:
         if self.parent is not None:
             self.parent.backpropagate(value)
 
+# This class is for the MCTS algorithm, which is described in Section 6.1
 class MCTS:
     def __init__(self, args, state, player, game, model):
         self.args = args
@@ -335,12 +374,10 @@ class MCTS:
     def search(self, state):
         model = self.model
         root = Node(self.game, self.args, state, visit_count=1)
-        policy, _ = model(
-            self.game.get_encoded_state(state).clone().detach().to(model.device).unsqueeze(0)
-        )
+        policy, _ = model(self.game.get_encoded_state(state).clone().detach().to(model.device).unsqueeze(0))
         policy = torch.softmax(policy, axis=1).squeeze(0).cpu().numpy()
-        policy = ((1 - self.args['dirichlet_epsilon']) * policy + self.args['dirichlet_epsilon']
-                  * np.random.dirichlet([self.args['dirichlet_alpha']] * self.game.actionSize))
+        policy = ((1 - self.args['dirichlet_epsilon']) * policy + self.args['dirichlet_epsilon'] * np.random.dirichlet(
+            [self.args['dirichlet_alpha']] * self.game.actionSize))
 
         validMoves = self.game.get_binary_moves(state)
         policy *= validMoves
@@ -358,9 +395,7 @@ class MCTS:
             value = self.game.getOpponentValue(value)
 
             if not is_terminal:
-                policy, value = model(
-                    self.game.get_encoded_state(state).clone().detach().to(model.device).unsqueeze(0)
-                )
+                policy, value = model(self.game.get_encoded_state(state).clone().detach().to(model.device).unsqueeze(0))
                 policy = torch.softmax(policy, axis=1).squeeze(0).cpu().numpy()
                 valid_moves = self.game.get_binary_moves(node.state)
                 policy *= valid_moves
@@ -378,34 +413,19 @@ class MCTS:
         action_probs /= np.sum(action_probs)
         return action_probs, root
 
+# This class is for the neural network, which is described in Section 6.3
 class ResNet(nn.Module):
     def __init__(self, game, num_resBlocks, num_hidden, device):
         super().__init__()
         self.device = device
-        self.startBlock = nn.Sequential(
-            nn.Conv2d(8, num_hidden, kernel_size=3, padding=1),
-            nn.BatchNorm2d(num_hidden),
-            nn.ReLU()
-        )
-        self.backBone = nn.ModuleList(
-            [ResBlock(num_hidden) for i in range(num_resBlocks)]
-        )
-        self.policyHead = nn.Sequential(
-            nn.Conv2d(num_hidden, 32, kernel_size=3, padding=1),
-            nn.BatchNorm2d(32),
-            nn.ReLU(),
-            nn.Flatten(),
-            nn.Linear(32 * 8 * 6, game.actionSize)
-        )
+        self.startBlock = nn.Sequential(nn.Conv2d(8, num_hidden, kernel_size=3, padding=1), nn.BatchNorm2d(num_hidden),
+            nn.ReLU())
+        self.backBone = nn.ModuleList([ResBlock(num_hidden) for i in range(num_resBlocks)])
+        self.policyHead = nn.Sequential(nn.Conv2d(num_hidden, 32, kernel_size=3, padding=1), nn.BatchNorm2d(32),
+            nn.ReLU(), nn.Flatten(), nn.Linear(32 * 8 * 6, game.actionSize))
 
-        self.valueHead = nn.Sequential(
-            nn.Conv2d(num_hidden, 3, kernel_size=3, padding=1),
-            nn.BatchNorm2d(3),
-            nn.ReLU(),
-            nn.Flatten(),
-            nn.Linear(3 * 8 * 6, 1),
-            nn.Tanh()
-        )
+        self.valueHead = nn.Sequential(nn.Conv2d(num_hidden, 3, kernel_size=3, padding=1), nn.BatchNorm2d(3), nn.ReLU(),
+            nn.Flatten(), nn.Linear(3 * 8 * 6, 1), nn.Tanh())
         self.to(device)
 
     def forward(self, x):
@@ -416,6 +436,7 @@ class ResNet(nn.Module):
         value = self.valueHead(x)
         return policy, value
 
+# This class is for the ResBlocks within the neural network, and is described in Section 6.3.4
 class ResBlock(nn.Module):
     def __init__(self, num_hidden):
         super().__init__()
@@ -433,38 +454,18 @@ class ResBlock(nn.Module):
         return x
 
 
-
-
-
-
-
-args = {
-    'C': 1,
-    'num_searches': 1000,
-    'num_iterations' : 100,
-    'num_selfPlay_iterations' : 385,
-    'num_parallel_games' : 11,
-    'num_epochs' : 4,
-    'num_win_epochs' : 2,
-    'batch_size' : 256,
-    'wins_batch_size' : 64,
-    'temperature' : 2,
-    'dirichlet_epsilon' : 0.5,
-    'dirichlet_alpha' : 0.6,
-    'num_engine_games' : 100,
-    'num_max_parallel_batches' : 20,
-    'num_max_searches' : 400
+args = {'C': 1, 'num_searches': 1000, 'num_iterations': 100, 'num_selfPlay_iterations': 385, 'num_parallel_games': 11,
+    'num_epochs': 4, 'num_win_epochs': 2, 'batch_size': 256, 'wins_batch_size': 64, 'temperature': 2,
+    'dirichlet_epsilon': 0.5, 'dirichlet_alpha': 0.6, 'num_engine_games': 100, 'num_max_parallel_batches': 20,
+    'num_max_searches': 400
 
 }
 device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 game = Game(device)
 player = 1
 
-state = chess.Board("7r/8/5p2/3p3p/4b2P/1nk5/p6K/3R4")
+state = chess.Board()
 move = chess.Move.from_uci('e2e3')
-
-
-
 
 model_state_dict = torch.load('model_5_stockfish_training.pt')
 new_optimizer_state_dict = torch.load('optimizer_41_complete_restart.pt')
@@ -480,9 +481,5 @@ mcts = MCTS(args, state, player, game, model)
 alphazero = ChessTrain.AlphaZeroParallel(model, optimizer, game, args, Node, mcts)
 profiler = cProfile.Profile()
 
-
 if __name__ == '__main__':
     game.play(state, player)
-
-
-

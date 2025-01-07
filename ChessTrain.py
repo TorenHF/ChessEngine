@@ -8,8 +8,14 @@ from functools import partial
 import time
 import os
 
+"""
+    This code is for the engine in the paper: Creating an Engine that teaches Itself to Play Chess, by Toren Hewitt-Fry, 2025.
+    The code in this file was partially created using AI sources.
+    All functions in this code, which were made using assistance from AI, cite the prompt number, which corresponds to a prompt in my Paper in Section 11.1.
+    All functions in this code, which correspond to certain Sections within my Paper, reference those Sections.
+    """
 
-
+# This class is for the self-play training of my model, which is referenced in Section: 8.6
 class AlphaZeroParallel:
     def __init__(self, model, optimizer, game, args, node, mcts):
         self.model = model
@@ -19,7 +25,7 @@ class AlphaZeroParallel:
         self.mcts = mcts
         self.state = chess.Board()
         self.root = None
-
+    # This function is for the training of my model based on the results gathered in the self-play games
     def train(self, memory):
         self.device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
         self.model.to(self.device)
@@ -32,7 +38,7 @@ class AlphaZeroParallel:
             state, policy_targets, value_targets, q_values = zip(*sample)
 
 
-            q_values = np.array(q_values).reshape(-1, 1)  # Reshape q_values
+            q_values = np.array(q_values).reshape(-1, 1)
 
             state, policy_targets, value_targets = np.array(state), np.array(policy_targets), np.array(value_targets).reshape(-1, 1)
 
@@ -45,13 +51,10 @@ class AlphaZeroParallel:
 
             out_policy, out_value = self.model(state)
 
-            # Policy loss remains the same
             policy_loss = F.cross_entropy(out_policy, policy_targets)
 
-            # Value loss: train on the average of q and z
             value_loss = F.mse_loss(out_value, avg_qz)
 
-            # Total loss
             loss = policy_loss + 2*value_loss
             loss_np = loss.cpu().detach().numpy()
             value_loss_np = value_loss.cpu().detach().numpy()
@@ -67,7 +70,7 @@ class AlphaZeroParallel:
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
-
+    # This function is referenced in Section 8.6.5.3
     def train_on_wins(self, memory):
         self.device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
         self.model.to(self.device)
@@ -79,7 +82,7 @@ class AlphaZeroParallel:
 
             state, policy_targets, value_targets, q_values = zip(*sample)
 
-            q_values = np.array(q_values).reshape(-1, 1)  # Reshape q_values
+            q_values = np.array(q_values).reshape(-1, 1)
 
             state, policy_targets, value_targets = np.array(state), np.array(policy_targets), np.array(
                 value_targets).reshape(-1, 1)
@@ -93,13 +96,10 @@ class AlphaZeroParallel:
 
             out_policy, out_value = self.model(state)
 
-            # Policy loss remains the same
             policy_loss = F.cross_entropy(out_policy, policy_targets)
 
-            # Value loss: train on the average of q and z
             value_loss = F.mse_loss(out_value, avg_qz)
 
-            # Total loss
             loss = policy_loss + 2*value_loss
             loss_np = loss.cpu().detach().numpy()
             value_loss_np = value_loss.cpu().detach().numpy()
@@ -114,11 +114,11 @@ class AlphaZeroParallel:
             loss.backward()
             self.optimizer.step()
 
-
+    # This section runs both the gathering of the self-play games and the training of the model based on those results
+    # This function was written / optimized with the help of AI and corresponds to AI prompt: 4, 5, 6, 7
     def learn(self, test):
         # Move the model to CPU to make it picklable
         mp.set_start_method('spawn', force=True)
-        # Move the model to CPU memory so it can be shared (pickled) with worker processes
         self.device = torch.device("cpu")
         self.model.to(self.device)
 
@@ -135,6 +135,7 @@ class AlphaZeroParallel:
 
                 #self.args['num_searches'] =  round(float(start_parameter_mcts * np.exp(-(iteration + 14) * 0.5) + self.args['num_max_searches']))
                 #self.args['num_selfPlay_iterations'] = round(float(start_parameter_spg * np.exp(-(iteration + 19) * 0.5) + max_games))
+                # removed these for the end of training as the iteration was so high that both functions had reached their limits
 
 
                 selfPlay_partial = partial(selfPlay_wrapper, self.mcts, self.game, self.args, self.model,
@@ -146,11 +147,8 @@ class AlphaZeroParallel:
 
 
                 for selfPlay_iteration in range(num_batches):
-                    async_results = []
-                    # Distribute self-play tasks to worker processes using the partial function
                     results = pool.map(selfPlay_partial, range(self.args['num_parallel_games']))
 
-                    # Combine all game memories
                     for idx, (success, result, num_moves, winner) in enumerate(results):
                         if success:
                             game_memory = result
@@ -170,19 +168,16 @@ class AlphaZeroParallel:
                                     outfile.write(infile.read())
                         cleanup_logs(self.args['num_parallel_games'])
 
-                # Training phase
                 self.model.train()
                 for epoch in range(self.args['num_epochs']):
                     self.train(memory)
                 for win_epoch in range(self.args['num_win_epochs']):
                     self.train_on_wins(win_memory)
 
-                # After training, move the model back to CPU for pickling in next iteration
                 self.model.to('cpu')
 
-                # Save model and optimizer state
-                torch.save(self.model.state_dict(), f"model_{iteration+42}_complete_restart.pt")
-                torch.save(self.optimizer.state_dict(), f"optimizer_{iteration+42}_complete_restart.pt")
+                torch.save(self.model.state_dict(), f"model_{iteration}_complete_restart.pt")
+                torch.save(self.optimizer.state_dict(), f"optimizer_{iteration}_complete_restart.pt")
 
 
 def cleanup_logs(num_workers):
@@ -204,29 +199,22 @@ def selfPlay_wrapper(mcts, game, args, model, model_state_dict, test, i):
             with open(f"worker_{i}_start_log.data", 'a') as f:
                 f.write(f'\n started at {time.localtime()}')
 
-
-        #game = Game(device)
-
-        # Load the model state dictionary for this worker
-        #model = ResNet(game, num_resBlocks=12, num_hidden=128, device=device)
         model.load_state_dict(model_state_dict)
 
-        # Move model to the device (GPU or CPU) as needed
         model.to(device)
         model.eval()
 
-        #mcts = MCTS(args, None, 1, game, model)
         result, num_moves, winner = selfPlay(game, mcts, args, i, test)
         if test:
             with open(f"worker_{i}_move_log.data", 'a') as f:
                 f.write(f'\n finished at {time.localtime()}')
 
-        return (True, result, num_moves, winner)  # Return the result to the main process
+        return (True, result, num_moves, winner)
 
     except Exception as e:
         print(f"Worker {i}: Exception occurred: {e}")
-        return (False, e, 0, 0)  # Re-raise exception to be caught in the main process
-
+        return (False, e, 0, 0)
+# This is the function for the playing of self-play games and is referenced throughout my whole paper, especially in Chapter 8.6
 def selfPlay(game, mcts, args, i, test):
     return_memory = []
     memory = []
@@ -247,7 +235,7 @@ def selfPlay(game, mcts, args, i, test):
         action_probs, root = mcts.search(neutral_state)
 
         temperature_action_probs = action_probs ** (1 / args['temperature'])
-        temperature_action_probs /= np.sum(temperature_action_probs)  # Ensure it sums to 1
+        temperature_action_probs /= np.sum(temperature_action_probs)
 
         action = np.random.choice(len(temperature_action_probs), p=temperature_action_probs)
         move = game.all_moves[action]
@@ -256,9 +244,9 @@ def selfPlay(game, mcts, args, i, test):
 
         value, is_terminal = game.get_value_and_terminate(state, num_moves)
 
-        # Save the π (action probabilities) and the Q value of the root node
-        q_value = root.value_sum / root.visit_count  # Q-value for the root node
-        memory.append((neutral_state, action_probs, player, q_value))  # Store q_value
+
+        q_value = root.value_sum / root.visit_count
+        memory.append((neutral_state, action_probs, player, q_value))
 
         if is_terminal:
             for hist_neutral_state, hist_action_probs, hist_player, hist_q_value in memory:
@@ -266,14 +254,17 @@ def selfPlay(game, mcts, args, i, test):
                 return_memory.append((
                     game.get_encoded_state(hist_neutral_state).cpu(),
                     hist_action_probs,
-                    hist_outcome,  # Use the final outcome as z
-                    hist_q_value  # Save q for training
+                    hist_outcome,
+                    hist_q_value
                 ))
 
         player = game.getOpponent(player)
     winner = value if player == 1 else game.getOpponent(value)
     return return_memory, num_moves, winner
 
+
+# This function corresponds to the function in Section 8.6.5.2
+# This function was written / optimized with the help of AI and corresponds to AI prompt: 1, 2, 3
 def generate_random_chess_position(max_attempts=1000):
     """
     Generates a random, non-terminal chess position using the python-chess library.

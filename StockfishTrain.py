@@ -153,10 +153,7 @@ class StockfishTrain:
         for iteration in range(self.args['num_iterations']):
             self.model.eval()
             memory = []
-
-            num_batches = self.args['num_selfPlay_iterations'] // self.args['num_parallel_games']
-
-            for selfPlay_iteration in range(num_batches):
+            for selfPlay_iteration in range(self.args['num_selfPlay_iterations']):
                 success, returned_memory, num_moves = play_wrapper(selfPlay_iteration)
                 if success:
                     memory.extend(returned_memory)
@@ -181,11 +178,8 @@ def play_wrapper(i):
         return False, 0, 0
 
 args = {
-    'C': 2,
-    'num_searches': 400,
     'num_iterations' : 40,
     'num_selfPlay_iterations' : 800,
-    'num_parallel_games' : 1,
     'num_epochs' : 4,
     'batch_size' : 128,
     'temperature' : 2,
