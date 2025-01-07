@@ -464,22 +464,29 @@ device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 game = Game(device)
 player = 1
 
+
 state = chess.Board()
 move = chess.Move.from_uci('e2e3')
 
-model_state_dict = torch.load('model_5_stockfish_training.pt')
-new_optimizer_state_dict = torch.load('optimizer_41_complete_restart.pt')
+self_play_model_state_dict = torch.load('model_59_complete_restart.pt')
+stockfish_model_state_dict = torch.load('model_5_stockfish_training.pt')
+self_play_optimizer_state_dict = torch.load('optimizer_59_complete_restart.pt')
 
-model = ResNet(game, 12, 128, device)
-new_model = ResNet(game, 8, 64, device)
-optimizer = torch.optim.Adam(new_model.parameters(), lr=0.001, weight_decay=0.0001)
+self_play_model = ResNet(game, 8, 64, device)
+stockfish_model = ResNet(game, 12, 128, device)
 
-model.load_state_dict(model_state_dict)
-optimizer.load_state_dict(new_optimizer_state_dict)
+optimizer = torch.optim.Adam(self_play_model.parameters(), lr=0.001, weight_decay=0.0001)
 
-mcts = MCTS(args, state, player, game, model)
-alphazero = ChessTrain.AlphaZeroParallel(model, optimizer, game, args, Node, mcts)
-profiler = cProfile.Profile()
+self_play_model.load_state_dict(self_play_model_state_dict)
+stockfish_model.load_state_dict(stockfish_model_state_dict)
+optimizer.load_state_dict(self_play_optimizer_state_dict)
+
+profiler = cProfile.Profile() # Using the profiler was done with the help of AI, see AI prompt: 14
+
+#To play against the self-play model, change the variable "stockfish_model" to "self_play_model" below in the MCTS class
+mcts = MCTS(args, state, player, game, stockfish_model)
+
+alphazero = ChessTrain.AlphaZeroParallel(self_play_model, optimizer, game, args, Node, mcts)
 
 if __name__ == '__main__':
     game.play(state, player)
