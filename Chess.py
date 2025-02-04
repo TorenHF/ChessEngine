@@ -468,9 +468,9 @@ player = 1
 state = chess.Board()
 move = chess.Move.from_uci('e2e3')
 
-self_play_model_state_dict = torch.load('model_59_complete_restart.pt')
-stockfish_model_state_dict = torch.load('model_5_stockfish_training.pt')
-self_play_optimizer_state_dict = torch.load('optimizer_59_complete_restart.pt')
+self_play_model_state_dict = torch.load('model_59_complete_restart.pt', map_location=device)
+stockfish_model_state_dict = torch.load('model_5_stockfish_training.pt', map_location=device)
+
 
 self_play_model = ResNet(game, 8, 64, device)
 stockfish_model = ResNet(game, 12, 128, device)
@@ -479,7 +479,7 @@ optimizer = torch.optim.Adam(self_play_model.parameters(), lr=0.001, weight_deca
 
 self_play_model.load_state_dict(self_play_model_state_dict)
 stockfish_model.load_state_dict(stockfish_model_state_dict)
-optimizer.load_state_dict(self_play_optimizer_state_dict)
+
 
 profiler = cProfile.Profile() # Using the profiler was done with the help of AI, see AI prompt: 14
 
